@@ -35,5 +35,18 @@
   "workspaces": [
     "frontend",
     "server"
-  ]
+  ],
+  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
+  "main": "eslint.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sheelmorjaria/rhymes-highlighter.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sheelmorjaria/rhymes-highlighter/issues"
+  },
+  "homepage": "https://github.com/sheelmorjaria/rhymes-highlighter#readme"
 }

@@ -18,10 +18,9 @@ function App() {
 
   const [selectedSong, setSelectedSong] = useState(null);
 
-  const [finalRhymes, setFinalRhymes] = useState([]);
 
   const fetchLyrics = async () => {
-    const url = `http://localhost:3001/api/lyrics?lyricText=${searchCriteria}`;
+    const url = `/api/lyrics?lyricText=${searchCriteria}`;
 
     try {
       if (searchCriteria === "") {
@@ -61,7 +60,7 @@ function App() {
   };
 
   const fetchLyric = async (lyricId, lyricChecksum) => {
-    const url = `http://localhost:3001/api/lyrics/${lyricId}/${lyricChecksum}`;
+    const url = `/api/lyrics/${lyricId}/${lyricChecksum}`;
 
     try {
       if (!lyricId || !lyricChecksum) {
@@ -86,7 +85,7 @@ function App() {
 
       // Fetch highlighted lyrics
       const highlightResponse = await fetch(
-        "http://localhost:3001/api/highlight",
+        "api/highlight",
         {
           method: "POST",
           headers: {
@@ -103,9 +102,7 @@ function App() {
       const highlightedData = await highlightResponse.json();
       console.log(highlightedData);
       setRhymesContent(highlightedData);
-      const output = generateRhymes(lyricsContent, highlightedData);
-      console.log(output);
-      setFinalRhymes(output);
+      
       
       
 

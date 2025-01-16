@@ -4,7 +4,7 @@ import fetch from "node-fetch";
 import bodyParser from "body-parser";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -176,7 +176,5 @@ app.get("/api/lyrics/:lyricId/:lyricCheckSum", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${port}`);
+  console.log(`Server running on ${PORT}`);
 });
-
-module.exports = app;
