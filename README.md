@@ -5,7 +5,7 @@ word is coloured by the rhyme family it belongs to. Select a family to step
 through where it occurs in the song.
 
 - **Song catalogue** — [Genius](https://genius.com) (search, song metadata)
-- **Lyric text** — [lyrics.ovh](https://lyricsovh.docs.apiary.io), with a paste-your-own fallback so highlighting always works
+- **Lyric text** — [lyrics.ovh](https://lyricsovh.docs.apiary.io) with [lrclib.net](https://lrclib.net) as a fallback source, plus a paste-your-own fallback so highlighting always works
 - **Rhyme data** — [Datamuse](https://api.datamuse.com/api/)
 
 ## Quick start
@@ -29,7 +29,7 @@ directly.
 |---|---|
 | `GET /api/search?q=…` | Song results and artist suggestions from Genius |
 | `GET /api/songs/:id` | Song metadata |
-| `GET /api/songs/:id/lyrics` | Lyric text and provenance, or an explicit unavailable/error status |
+| `GET /api/songs/:id/lyrics` | Lyric text and provenance (lyrics.ovh, then lrclib.net), or an explicit unavailable/error status |
 | `POST /api/highlight` | Analyse text: tokens with offsets + rhyme families (`{ text: "..." }`) |
 | `GET /api/health` | Server status and catalogue availability |
 

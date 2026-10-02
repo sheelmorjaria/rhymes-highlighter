@@ -99,6 +99,9 @@ const LyricsReader = ({ meta, lyrics, analysis, onRetrySong, onRetryAnalysis, on
               </a>
             </>
           )}
+          {lyrics.status === "available" && lyrics.provenance && (
+            <> · lyrics via {lyrics.provenance.provider}</>
+          )}
         </p>
       </>
     );
@@ -112,8 +115,8 @@ const LyricsReader = ({ meta, lyrics, analysis, onRetrySong, onRetryAnalysis, on
       return (
         <div className="panel">
           <p className="panel__message">
-            No lyrics were found for this song in our lyrics source. Paste the lyrics yourself to get
-            rhyme highlighting.
+            No lyrics were found for this song in either of our lyrics sources. Paste the lyrics
+            yourself to get rhyme highlighting.
           </p>
           <PasteLyricsBox onAnalyze={onPasteText} submitLabel="Highlight pasted lyrics" />
         </div>

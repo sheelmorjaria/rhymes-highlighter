@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A "rhymes highlighter" web app: search for a song, fetch its lyrics, and render every word with a background colour so words that rhyme with each other share a colour. Two halves — a React + Vite frontend (`src/`) and an Express backend (`api/index.js`).
 
-The catalogue is **Genius** (song search and metadata), the lyric text comes from **lyrics.ovh** with a paste-your-own fallback, and rhyme data comes from **Datamuse**. This is "Package 1" of a larger plan to evolve the app into an artist-exploration app; artist pages, similar-artist discovery (e.g. Last.fm) and rhyme-based song comparison are planned but **not built yet**.
+The catalogue is **Genius** (song search and metadata), the lyric text comes from **lyrics.ovh** with **lrclib.net** as a fallback provider (tried per title variant; the response's `provenance` says which one supplied the text), plus a paste-your-own fallback, and rhyme data comes from **Datamuse**. This is "Package 1" of a larger plan to evolve the app into an artist-exploration app; artist pages, similar-artist discovery (e.g. Last.fm) and rhyme-based song comparison are planned but **not built yet**.
 
 ## Commands
 
 - `npm run dev` — Vite dev server (port 5173) with a `/api` proxy to `localhost:3001`, so relative API URLs work in local dev.
-- `npm start` — Express backend (`api/index.js`, port `process.env.PORT || 3001`). Loads `.env` if present via `node --env-file-if-present` (Node ≥ 22.9).
+- `npm start` — Express backend (`api/index.js`, port `process.env.PORT || 3001`). Loads a local `.env` at startup (parsed in-code, so no Node CLI flag is needed).
 - `npm run build` / `npm run preview` — build the frontend to `dist/` and preview it.
 - `npm run lint` — ESLint over all `.js`/`.jsx` files. Backend files get Node globals; the rest get browser globals.
 - There are no tests and no test runner.
@@ -32,7 +32,7 @@ All external HTTP goes through the backend; the frontend uses only relative `/ap
 1. Search → `App.runSearch()` calls `GET /api/search?q=...` → backend proxies to `api.genius.com/search` with `Authorization: Bearer`. Returns JSON: `{ query, songs, artists }` — songs are `{ id, title, fullTitle, artist, artistNames, artworkUrl, sourceUrl }`; artists are suggestions derived from the song hits (not a full artist search, and the UI labels them as such).
 2. Select a song → `App.loadSong(id)` chains three requests, each guarded by a per-song sequence number so stale responses are dropped and a cache (`songsRef`) lets you revisit a song without refetching:
    - `GET /api/songs/:id` → Genius song metadata (`{ song }`).
-   - `GET /api/songs/:id/lyrics` → tries lyrics.ovh with the full title, then stripped variants (parentheticals, "- Remix" suffixes). Returns `{ songId, status: "available" | "unavailable" | "error", text?, provenance? }` — availability is data, always HTTP 200 here. Failures are distinct from "no lyrics found".
+   - `GET /api/songs/:id/lyrics` → tries lyrics.ovh then lrclib.net, each with the full title then stripped variants (parentheticals, "- Remix" suffixes). Returns `{ songId, status: "available" | "unavailable" | "error", text?, provenance? }` — availability is data, always HTTP 200 here. Failures are distinct from "no lyrics found".
    - `POST /api/highlight` with `{ text }` → rhyme analysis (below). The reader shows the plain text while analysis runs.
 3. Rendering → `LyricsReader` (view modes: All rhymes / Selected family / Plain) → `RhymesOutput` builds segments from the **original text plus token offsets**, painting only word spans. `familyColors.js` maps stable family ids to a fixed palette — colours are deterministic, never shuffled.
 

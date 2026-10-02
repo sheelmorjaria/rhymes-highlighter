@@ -1,5 +1,23 @@
 import express from "express";
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+// Load a local .env (if present) so `npm start` picks up GENIUS_ACCESS_TOKEN
+// and friends without requiring node CLI flags. Vercel injects env vars itself.
+if (!process.env.VERCEL) {
+  const envPath = join(dirname(fileURLToPath(import.meta.url)), "..", ".env");
+  if (existsSync(envPath)) {
+    const lineRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/;
+    for (const line of readFileSync(envPath, "utf8").split("\n")) {
+      const match = line.match(lineRe);
+      if (match && process.env[match[1]] === undefined) {
+        process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, "");
+      }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // App setup
@@ -148,19 +166,25 @@ async function getGeniusSong(songId) {
 }
 
 // ---------------------------------------------------------------------------
-// Lyrics provider: lyrics.ovh
+// Lyrics providers: lyrics.ovh first, lrclib.net as fallback
 // ---------------------------------------------------------------------------
 
 const LYRICS_OVH_BASE = "https://api.lyrics.ovh/v1";
+const LRCLIB_BASE = "https://lrclib.net/api";
 const LYRICS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const LYRICS_PROVIDER_TIMEOUT_MS = 8000;
 const lyricsCache = new Map(); // "artist|title" -> { result, fetchedAt }
+
+// lrclib.net asks API consumers to identify themselves with a User-Agent.
+const LYRICS_USER_AGENT =
+  "RhymesHighlighter/0.1 (https://github.com/sheelmorjaria/rhymes-highlighter)";
 
 function normalizeLyricText(text) {
   return text.replace(/\r\n?/g, "\n").trim();
 }
 
-// Genius titles often carry version decoration that lyrics.ovh does not know:
-// "Calm Down (with Selena Gomez)" or "Bohemian Rhapsody - Remastered 2011".
+// Genius titles often carry version decoration that lyrics providers do not
+// know: "Calm Down (with Selena Gomez)" or "Bohemian Rhapsody - Remastered 2011".
 function lyricTitleCandidates(title) {
   const attempts = [title];
   const withoutParenthetical = title.replace(/\s*[[(][^\])]*[\])]\s*$/u, "").trim();
@@ -173,34 +197,66 @@ function lyricTitleCandidates(title) {
   return attempts;
 }
 
-async function fetchLyricsFromProvider(artistName, title) {
-  for (const candidate of lyricTitleCandidates(title)) {
-    const url = `${LYRICS_OVH_BASE}/${encodeURIComponent(artistName)}/${encodeURIComponent(candidate)}`;
-    let response;
-    try {
-      response = await fetch(url, {
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(12000),
-      });
-    } catch (error) {
-      const cause = error?.name === "TimeoutError" ? "timed out" : "was unreachable";
-      return { status: "error", message: `The lyrics provider ${cause}.` };
-    }
-    if (response.ok) {
-      const data = await response.json().catch(() => null);
-      const text = typeof data?.lyrics === "string" ? normalizeLyricText(data.lyrics) : "";
-      if (text) {
-        return { status: "available", text, provenance: { provider: "lyrics.ovh" } };
-      }
-      continue; // Empty body: try the next title variant.
-    }
-    if (response.status === 404) {
-      continue;
-    }
-    return { status: "error", message: `The lyrics provider responded with status ${response.status}.` };
+// Each provider attempt resolves to exactly one of:
+//   { hit: true, text, provenance } — lyrics found
+//   { hit: false, miss: true }      — provider says it has no such song (404)
+//   { hit: false, miss: false, error } — provider unreachable or erroring
+
+async function tryLyricsOvh(artistName, title) {
+  const url = `${LYRICS_OVH_BASE}/${encodeURIComponent(artistName)}/${encodeURIComponent(title)}`;
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(LYRICS_PROVIDER_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const cause = error?.name === "TimeoutError" ? "timed out" : "was unreachable";
+    return { hit: false, miss: false, error: `lyrics.ovh ${cause}` };
   }
-  return { status: "unavailable" };
+  if (response.status === 404) {
+    return { hit: false, miss: true };
+  }
+  if (!response.ok) {
+    return { hit: false, miss: false, error: `lyrics.ovh responded with status ${response.status}` };
+  }
+  const data = await response.json().catch(() => null);
+  const text = typeof data?.lyrics === "string" ? normalizeLyricText(data.lyrics) : "";
+  if (!text) {
+    return { hit: false, miss: true }; // Empty body counts as a miss.
+  }
+  return { hit: true, text, provenance: { provider: "lyrics.ovh" } };
 }
+
+async function tryLrclib(artistName, title) {
+  const url = new URL(`${LRCLIB_BASE}/get`);
+  url.searchParams.set("artist_name", artistName);
+  url.searchParams.set("track_name", title);
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { Accept: "application/json", "User-Agent": LYRICS_USER_AGENT },
+      signal: AbortSignal.timeout(LYRICS_PROVIDER_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const cause = error?.name === "TimeoutError" ? "timed out" : "was unreachable";
+    return { hit: false, miss: false, error: `lrclib.net ${cause}` };
+  }
+  if (response.status === 404) {
+    return { hit: false, miss: true };
+  }
+  if (!response.ok) {
+    return { hit: false, miss: false, error: `lrclib.net responded with status ${response.status}` };
+  }
+  const data = await response.json().catch(() => null);
+  const text = typeof data?.plainLyrics === "string" ? normalizeLyricText(data.plainLyrics) : "";
+  if (!text) {
+    return { hit: false, miss: true }; // Synced-only entry with no plain lyrics.
+  }
+  return { hit: true, text, provenance: { provider: "lrclib.net" } };
+}
+
+const LYRICS_PROVIDERS = [tryLyricsOvh, tryLrclib];
 
 async function getLyrics(song) {
   const artistName = song.artist?.name || song.artistNames;
@@ -212,7 +268,36 @@ async function getLyrics(song) {
   if (cached && Date.now() - cached.fetchedAt < LYRICS_CACHE_TTL_MS) {
     return cached.result;
   }
-  const result = await fetchLyricsFromProvider(artistName, song.title);
+
+  const candidates = lyricTitleCandidates(song.title);
+  const errors = [];
+  for (const provider of LYRICS_PROVIDERS) {
+    for (const candidate of candidates) {
+      const attempt = await provider(artistName, candidate);
+      if (attempt.hit) {
+        const result = {
+          status: "available",
+          text: attempt.text,
+          provenance: attempt.provenance,
+        };
+        lyricsCache.set(cacheKey, { result, fetchedAt: Date.now() });
+        return result;
+      }
+      if (!attempt.miss) {
+        // Provider is down: skip its remaining candidates, try the next provider.
+        errors.push(attempt.error);
+        break;
+      }
+      // Clean miss on this candidate: try the next title variant.
+    }
+  }
+
+  // No provider had the lyrics. If a provider also could not be queried, say
+  // so instead of claiming the song simply has no lyrics available.
+  const result =
+    errors.length > 0
+      ? { status: "error", message: [...new Set(errors)].join("; ") }
+      : { status: "unavailable" };
   lyricsCache.set(cacheKey, { result, fetchedAt: Date.now() });
   return result;
 }

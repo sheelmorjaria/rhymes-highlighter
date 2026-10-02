@@ -131,7 +131,12 @@ function App() {
           return;
         }
         patchSong(songId, {
-          lyrics: { status: data.status, text: data.text ?? null, error: data.message ?? null },
+          lyrics: {
+            status: data.status,
+            text: data.text ?? null,
+            error: data.message ?? null,
+            provenance: data.provenance ?? null,
+          },
         });
         if (data.status === "available" && data.text) {
           await analyseSong(songId, data.text);
