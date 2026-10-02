@@ -1,26 +1,22 @@
 {
-  "name": "lyrics-search",
+  "name": "rhymes-highlighter",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node index.js"
+    "start": "node --env-file-if-present=.env api/index.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.21.2",
-    "http-proxy-middleware": "^3.0.3",
-    "node-fetch": "^3.3.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
-    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
@@ -32,12 +28,7 @@
     "globals": "^15.14.0",
     "vite": "^6.0.7"
   },
-  "workspaces": [
-    "frontend",
-    "server"
-  ],
-  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
-  "main": "eslint.config.js",
+  "description": "Search for a song and see its lyrics with rhyming words highlighted by rhyme family.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sheelmorjaria/rhymes-highlighter.git"

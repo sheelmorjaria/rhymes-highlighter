@@ -1,42 +1,492 @@
-#root {
-  max-width: 1280px;
+.app {
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  padding: 0 1.25rem 3rem;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* Header */
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 0;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 1.5rem;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
+.app-header__brand {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #111827;
+}
+
+.app-header__search {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1 1 320px;
+  max-width: 520px;
+}
+
+.app-header__search input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+}
+
+/* Buttons */
+
+.button {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  color: #111827;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.button:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.button--toggle[aria-pressed="true"] {
+  background: #111827;
+  border-color: #111827;
+  color: #fff;
+}
+
+.button--small {
+  padding: 0.25rem 0.6rem;
+  font-weight: 500;
+}
+
+.link-button {
+  border: none;
+  background: none;
+  color: #4f46e5;
+  text-decoration: underline;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 600;
+}
+
+/* Layout */
+
+.layout {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.layout--home {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* The reader keeps the wide column; the song list sits beside it on desktop. */
+.layout--with-session {
+  grid-template-columns: minmax(0, 1fr) 380px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .layout--with-session {
+    grid-template-columns: 1fr;
   }
+}
+
+/* Hero (paste-your-own entry point) */
+
+.hero {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 2rem;
+}
+
+.hero h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+}
+
+.hero p {
+  margin: 0 0 1.25rem;
+  color: #4b5563;
+}
+
+/* Panels and status messages */
+
+.panel {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.panel__message {
+  margin: 0;
+  color: #374151;
+}
+
+.panel__message--error {
+  color: #b91c1c;
+}
+
+.status {
+  margin: 0 0 1rem;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.status--loading::before {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  border: 2px solid #d1d5db;
+  border-top-color: #6366f1;
+  vertical-align: -0.1em;
+  animation: spin 0.8s linear infinite;
+}
+
+.status--error {
+  color: #b91c1c;
+}
+
+.status--warn {
+  color: #92400e;
+}
+
+.status--info {
+  color: #4b5563;
+}
+
+@keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+@media (prefers-reduced-motion: reduce) {
+  .status--loading::before {
+    animation: none;
   }
 }
 
-.card {
-  padding: 2em;
+/* Search results */
+
+.results__heading {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
 }
 
-.read-the-docs {
-  color: #888;
+.results__hint {
+  margin: 0.25rem 0 0.75rem;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.artist-chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.artist-chips__chip {
+  border: 1px solid #d1d5db;
+  background: #eef2ff;
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  font-weight: 500;
+}
+
+.artist-chips__chip:hover {
+  background: #e0e7ff;
+}
+
+.song-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.song-card {
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.song-card:hover {
+  border-color: #a5b4fc;
+  box-shadow: 0 1px 6px rgba(17, 24, 39, 0.07);
+}
+
+.song-card__art {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex: none;
+  background: #f3f4f6;
+}
+
+.song-card__art--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 1.2rem;
+}
+
+.song-card__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.song-card__title,
+.song-card__artist,
+.song-card__variant {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.song-card__title {
+  font-weight: 650;
+  color: #111827;
+}
+
+.song-card__artist {
+  color: #4b5563;
+  font-size: 0.92rem;
+}
+
+.song-card__variant {
+  color: #9ca3af;
+  font-size: 0.8rem;
+}
+
+.song-card__action {
+  margin-left: auto;
+  flex: none;
+  color: #4f46e5;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* Lyric reader */
+
+.reader {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem 2rem;
+  min-width: 0;
+}
+
+.reader__header {
+  margin-bottom: 1rem;
+}
+
+.reader__title {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+}
+
+.reader__title--loading {
+  color: #9ca3af;
+}
+
+.reader__subtitle {
+  margin: 0.35rem 0 0;
+  color: #4b5563;
+}
+
+.reader__note {
+  margin: 0.35rem 0 0;
+  font-weight: 500;
+}
+
+.reader__note--warn {
+  color: #92400e;
+}
+
+.reader__note--error {
+  color: #b91c1c;
+}
+
+/* Lyrics text. pre-wrap preserves the original spacing and stanza breaks. */
+
+.lyrics {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.08rem;
+  line-height: 2.05;
+  max-width: 70ch;
+  color: #111827;
+}
+
+.token {
+  border-radius: 5px;
+  padding: 0.04em 0.16em;
+}
+
+.token--selectable {
+  cursor: pointer;
+}
+
+.token--muted {
+  opacity: 0.28;
+}
+
+.token--active {
+  outline: 2px solid #111827;
+  font-weight: 600;
+}
+
+/* View toolbar, occurrence navigation, legend */
+
+.view-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0.9rem;
+}
+
+.occurrences {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.occurrences__label {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.occurrences__position {
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92rem;
+}
+
+.legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.legend__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.legend__chip:hover {
+  border-color: #9ca3af;
+}
+
+.legend__chip--selected {
+  border-color: #111827;
+  box-shadow: 0 0 0 1px #111827;
+}
+
+.legend__swatch {
+  width: 0.95em;
+  height: 0.95em;
+  border-radius: 4px;
+  border: 1px solid rgba(17, 24, 39, 0.25);
+}
+
+.legend__label {
+  font-weight: 700;
+}
+
+.legend__examples {
+  color: #4b5563;
+}
+
+.legend__count {
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Paste box */
+
+.paste-box {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.paste-box label {
+  font-weight: 600;
+}
+
+.paste-box textarea {
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  resize: vertical;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.paste-box .button {
+  justify-self: start;
+}
+
+@media (max-width: 640px) {
+  .reader {
+    padding: 1.1rem 1rem 1.5rem;
+  }
+
+  .lyrics {
+    font-size: 1.02rem;
+  }
 }
