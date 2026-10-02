@@ -11,6 +11,7 @@ const LyricsReader = ({ meta, lyrics, analysis, onRetrySong, onRetryAnalysis, on
   const [viewMode, setViewMode] = useState("all"); // "all" | "family" | "plain"
   const [selectedFamilyId, setSelectedFamilyId] = useState(null);
   const [occurrenceIndex, setOccurrenceIndex] = useState(0);
+  const [showPasteOverride, setShowPasteOverride] = useState(false);
 
   const families = useMemo(() => analysis?.families ?? [], [analysis]);
   const tokens = analysis?.tokens ?? null;
@@ -173,6 +174,25 @@ const LyricsReader = ({ meta, lyrics, analysis, onRetrySong, onRetryAnalysis, on
     return null;
   };
 
+  // Provider lyrics can be wrong (mislabeled versions upstream). Rather than
+  // pretending otherwise, offer an explicit paste-your-own override.
+  const renderOverride = () => {
+    if (lyrics.status !== "available") {
+      return null;
+    }
+    return (
+      <div className="reader__override">
+        {showPasteOverride ? (
+          <PasteLyricsBox onAnalyze={onPasteText} submitLabel="Replace with pasted lyrics" />
+        ) : (
+          <button type="button" className="link-button" onClick={() => setShowPasteOverride(true)}>
+            Lyrics look wrong? Paste your own
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const renderBody = () => {
     const lyricsPanel = renderLyricsPanel();
     if (lyricsPanel) {
@@ -286,6 +306,7 @@ const LyricsReader = ({ meta, lyrics, analysis, onRetrySong, onRetryAnalysis, on
     <article className="reader" aria-label="Lyric reader">
       <header className="reader__header">{renderHeader()}</header>
       {renderBody()}
+      {renderOverride()}
     </article>
   );
 };

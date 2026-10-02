@@ -17,6 +17,7 @@
   margin-bottom: 1.5rem;
 }
 
+
 .app-header__brand {
   font-size: 1.35rem;
   font-weight: 800;
@@ -100,6 +101,170 @@
 @media (max-width: 960px) {
   .layout--with-session {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Header left group (brand + back) */
+
+.app-header__left {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.app-header__back {
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+/* Artist page */
+
+.artist {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 1.5rem 1.75rem 2rem;
+  min-width: 0;
+}
+
+.artist__header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.artist__image {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex: none;
+  background: #f3f4f6;
+}
+
+.artist__image--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 1.6rem;
+}
+
+.artist__similar {
+  margin-top: 1.75rem;
+}
+
+.similar-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.similar-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0.55rem 0.7rem;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.similar-card:hover {
+  border-color: #a5b4fc;
+  box-shadow: 0 1px 6px rgba(17, 24, 39, 0.07);
+}
+
+.similar-card__image {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex: none;
+  background: #f3f4f6;
+}
+
+.similar-card__image--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+}
+
+.similar-card__name {
+  font-weight: 600;
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+
+.results__hint--attribution {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.button--more {
+  margin-top: 0.75rem;
+}
+
+/* Recently opened */
+
+.recent__list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.recent__item {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.recent__item:hover {
+  border-color: #a5b4fc;
+  box-shadow: 0 1px 6px rgba(17, 24, 39, 0.07);
+}
+
+.recent__title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.recent__artist {
+  color: #6b7280;
+  font-size: 0.88rem;
+}
+
+/* Artist context sidebar */
+
+.artist-context {
+  display: grid;
+  gap: 0.4rem;
+}
+
+@media (max-width: 640px) {
+  .artist {
+    padding: 1.1rem 1rem 1.5rem;
   }
 }
 
@@ -344,6 +509,12 @@
 
 .reader__note--error {
   color: #b91c1c;
+}
+
+.reader__override {
+  margin-top: 1.5rem;
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 0.9rem;
 }
 
 /* Lyrics text. pre-wrap preserves the original spacing and stanza breaks. */

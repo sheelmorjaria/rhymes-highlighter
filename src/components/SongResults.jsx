@@ -1,7 +1,10 @@
+import SongCard from "./SongCard";
+
 // Search results with explicit states: searching, results, no results, error
-// and catalogue-unavailable. Song cards are buttons (no href="#" links);
-// artist suggestions are derived from the song results and labelled as such.
-const SongResults = ({ status, results, error, query, onOpenSong, onArtistSearch, onRetry }) => {
+// and catalogue-unavailable. Artist suggestions are derived from the song
+// results and labelled as such — they open the artist page when the name can
+// be resolved to the Genius catalogue.
+const SongResults = ({ status, results, error, query, onOpenSong, onOpenArtist, onRetry }) => {
   if (status === "idle") {
     return null;
   }
@@ -47,7 +50,7 @@ const SongResults = ({ status, results, error, query, onOpenSong, onArtistSearch
               <ul className="artist-chips">
                 {results.artists.map((artist) => (
                   <li key={artist.id}>
-                    <button type="button" className="artist-chips__chip" onClick={() => onArtistSearch(artist.name)}>
+                    <button type="button" className="artist-chips__chip" onClick={() => onOpenArtist(artist.name)}>
                       {artist.name}
                     </button>
                   </li>
@@ -63,25 +66,7 @@ const SongResults = ({ status, results, error, query, onOpenSong, onArtistSearch
             <ul className="song-list">
               {results.songs.map((song) => (
                 <li key={song.id}>
-                  <button type="button" className="song-card" onClick={() => onOpenSong(song.id)}>
-                    {song.artworkUrl ? (
-                      <img className="song-card__art" src={song.artworkUrl} alt="" loading="lazy" />
-                    ) : (
-                      <span className="song-card__art song-card__art--placeholder" aria-hidden="true">
-                        ♪
-                      </span>
-                    )}
-                    <span className="song-card__body">
-                      <span className="song-card__title">{song.title}</span>
-                      <span className="song-card__artist">{song.artistNames}</span>
-                      {song.fullTitle && song.fullTitle !== song.title && (
-                        <span className="song-card__variant">{song.fullTitle}</span>
-                      )}
-                    </span>
-                    <span className="song-card__action" aria-hidden="true">
-                      Open
-                    </span>
-                  </button>
+                  <SongCard song={song} onOpen={onOpenSong} />
                 </li>
               ))}
             </ul>

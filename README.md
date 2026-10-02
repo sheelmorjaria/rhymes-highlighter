@@ -30,6 +30,10 @@ directly.
 | `GET /api/search?q=…` | Song results and artist suggestions from Genius |
 | `GET /api/songs/:id` | Song metadata |
 | `GET /api/songs/:id/lyrics` | Lyric text and provenance (lyrics.ovh, then lrclib.net), or an explicit unavailable/error status |
+| `GET /api/artists/:id` | Artist details |
+| `GET /api/artists/:id/songs?page=…` | Paginated artist song list |
+| `GET /api/artists/:id/similar` | Similar artists via Last.fm (needs `LASTFM_API_KEY`; reports unavailable otherwise) |
+| `GET /api/artists/lookup?name=…` | Resolve an artist name into the Genius catalogue |
 | `POST /api/highlight` | Analyse text: tokens with offsets + rhyme families (`{ text: "..." }`) |
 | `GET /api/health` | Server status and catalogue availability |
 

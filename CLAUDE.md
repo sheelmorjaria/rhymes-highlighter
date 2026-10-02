@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A "rhymes highlighter" web app: search for a song, fetch its lyrics, and render every word with a background colour so words that rhyme with each other share a colour. Two halves — a React + Vite frontend (`src/`) and an Express backend (`api/index.js`).
 
-The catalogue is **Genius** (song search and metadata), the lyric text comes from **lyrics.ovh** with **lrclib.net** as a fallback provider (tried per title variant; the response's `provenance` says which one supplied the text), plus a paste-your-own fallback, and rhyme data comes from **Datamuse**. This is "Package 1" of a larger plan to evolve the app into an artist-exploration app; artist pages, similar-artist discovery (e.g. Last.fm) and rhyme-based song comparison are planned but **not built yet**.
+The catalogue is **Genius** (song search, song/artist metadata, artist song lists), the lyric text comes from **lyrics.ovh** with **lrclib.net** as a fallback provider (tried per title variant; the response's `provenance` says which one supplied the text), plus a paste-your-own fallback, and rhyme data comes from **Datamuse**. Similar-artist discovery uses **Last.fm** when `LASTFM_API_KEY` is set. This covers "Packages 1–2" of the plan to evolve the app into an artist-exploration app; rhyme-based song comparison (Package 3) is planned but **not built yet**.
 
 ## Commands
 
@@ -21,6 +21,7 @@ For full-stack local work run both `npm start` and `npm run dev`.
 ## Environment variables (server-side only)
 
 - `GENIUS_ACCESS_TOKEN` — Genius API bearer token. **Without it the app still runs**: search reports a visible "catalogue unavailable" state, and pasting lyrics for highlighting still works. Never expose this to the frontend (no `VITE_` prefix).
+- `LASTFM_API_KEY` — optional; enables similar-artist cards on artist pages via Last.fm `artist.getSimilar`. Without it the section reports "not configured" and the artist page keeps working. The `match` score is used for ordering only, never displayed as a "N% similar" claim.
 - `DATAMUSE_API_KEY` — optional today; Datamuse has announced keys will be required from 1 Jan 2027.
 
 See `.env.example`.
@@ -35,8 +36,9 @@ All external HTTP goes through the backend; the frontend uses only relative `/ap
    - `GET /api/songs/:id/lyrics` → tries lyrics.ovh then lrclib.net, each with the full title then stripped variants (parentheticals, "- Remix" suffixes). Returns `{ songId, status: "available" | "unavailable" | "error", text?, provenance? }` — availability is data, always HTTP 200 here. Failures are distinct from "no lyrics found".
    - `POST /api/highlight` with `{ text }` → rhyme analysis (below). The reader shows the plain text while analysis runs.
 3. Rendering → `LyricsReader` (view modes: All rhymes / Selected family / Plain) → `RhymesOutput` builds segments from the **original text plus token offsets**, painting only word spans. `familyColors.js` maps stable family ids to a fixed palette — colours are deterministic, never shuffled.
+4. Artist exploration → `ArtistPage` loads `GET /api/artists/:id` (header), `GET /api/artists/:id/songs?page=N` (paginated, "More songs" button) and `GET /api/artists/:id/similar` (Last.fm, optional). Similar-artist and artist-suggestion clicks resolve a *name* back into the Genius catalogue via `GET /api/artists/lookup?name=…`; if resolution fails it falls back to a plain search. A song opened from an artist page keeps its artist context (`?artist=`): the sidebar shows that artist's other songs (`ArtistContext`) instead of search results.
 
-App state is URL-synced (`?q=`, `?song=`) via `history.pushState`/`popstate`, so searches and open songs survive refresh and browser navigation.
+App state is URL-synced (`?q=`, `?song=`, `?artist=`) via `history.pushState`/`popstate`, so searches, open songs and artist pages survive refresh and browser navigation; there is an in-app Back button alongside browser back. The exploration trail ("Recently opened", capped at 8, with artist context) persists in `localStorage` under `rhymes.recent`.
 
 If lyrics are unavailable (or the provider errors), the reader offers a paste box; pasted text flows through the same `POST /api/highlight` analysis. The home page has the same paste box as a first-class entry point.
 

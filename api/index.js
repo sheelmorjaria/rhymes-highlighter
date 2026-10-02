@@ -137,7 +137,11 @@ function normalizeSong(result) {
     fullTitle: result.full_title || result.title || "",
     artist,
     artistNames: result.artist_names || artist?.name || "",
-    artworkUrl: result.song_art_image_url || result.header_image_thumbnail_url || null,
+    artworkUrl:
+      result.song_art_image_url ||
+      result.song_art_image_thumbnail_url ||
+      result.header_image_thumbnail_url ||
+      null,
     sourceUrl: result.url || null,
   };
 }
@@ -163,6 +167,111 @@ async function getGeniusSong(songId) {
   const normalized = normalizeSong(song);
   songCache.set(songId, { song: normalized, fetchedAt: Date.now() });
   return normalized;
+}
+
+// ---------------------------------------------------------------------------
+// Artist catalogue (Genius) and discovery (Last.fm)
+// ---------------------------------------------------------------------------
+
+const ARTIST_CACHE_TTL_MS = 60 * 60 * 1000;
+const artistCache = new Map(); // artistId -> { artist, fetchedAt }
+const artistSongsCache = new Map(); // "artistId:page" -> { payload, fetchedAt }
+const similarArtistsCache = new Map(); // lowercase name -> { payload, fetchedAt }
+const LASTFM_BASE_URL = "https://ws.audioscrobbler.com/2.0/";
+
+async function getGeniusArtist(artistId) {
+  const cached = artistCache.get(artistId);
+  if (cached && Date.now() - cached.fetchedAt < ARTIST_CACHE_TTL_MS) {
+    return cached.artist;
+  }
+  let data;
+  try {
+    data = await geniusRequest(`/artists/${artistId}`);
+  } catch (error) {
+    if (error.upstreamStatus === 404) {
+      throw new ApiError(404, "artist_not_found", `Genius has no artist with id ${artistId}`);
+    }
+    throw error;
+  }
+  const artist = data?.response?.artist;
+  if (!artist?.id) {
+    throw new ApiError(502, "upstream_error", "Genius returned an unexpected artist payload");
+  }
+  const normalized = normalizeArtist(artist);
+  artistCache.set(artistId, { artist: normalized, fetchedAt: Date.now() });
+  return normalized;
+}
+
+// Resolve an artist *name* into the Genius catalogue by scanning song-search
+// hits for a matching primary artist. Exact (case-insensitive) name match
+// wins; otherwise the top hit's artist is the best available guess.
+async function lookupArtistByName(name) {
+  const data = await geniusRequest("/search", { q: name });
+  const hits = Array.isArray(data?.response?.hits) ? data.response.hits : [];
+  const target = name.toLowerCase();
+  let fallback = null;
+  for (const hit of hits) {
+    const primaryArtist = hit?.result?.primary_artist;
+    if (!primaryArtist?.id) {
+      continue;
+    }
+    if (primaryArtist.name.toLowerCase() === target) {
+      return normalizeArtist(primaryArtist);
+    }
+    if (!fallback) {
+      fallback = primaryArtist;
+    }
+  }
+  if (!fallback) {
+    throw new ApiError(404, "artist_not_found", `No artist named “${name}” was found`);
+  }
+  return normalizeArtist(fallback);
+}
+
+// Similar artists via Last.fm's artist.getSimilar. Optional: without
+// LASTFM_API_KEY the endpoint reports "unavailable" (HTTP 200) so artist
+// pages keep rendering. The `match` score is used only for ordering — it is
+// not surfaced as a "N% similar" claim.
+async function getSimilarArtists(artistName) {
+  const apiKey = process.env.LASTFM_API_KEY || "";
+  if (!apiKey) {
+    return { status: "unavailable" };
+  }
+  const cacheKey = artistName.toLowerCase();
+  const cached = similarArtistsCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < LYRICS_CACHE_TTL_MS) {
+    return cached.payload;
+  }
+
+  const url = new URL(LASTFM_BASE_URL);
+  url.searchParams.set("method", "artist.getSimilar");
+  url.searchParams.set("artist", artistName);
+  url.searchParams.set("api_key", apiKey);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", "8");
+
+  let data;
+  try {
+    data = await fetchJson(url, { timeoutMs: 8000 });
+  } catch (error) {
+    return { status: "error", message: `Last.fm ${error.message}` };
+  }
+  if (data?.error) {
+    // Last.fm signals failures as HTTP 200 with an error body.
+    return { status: "error", message: `Last.fm: ${data.message || `error ${data.error}`}` };
+  }
+  const similar = Array.isArray(data?.similarartists?.artist) ? data.similarartists.artist : [];
+  const artists = similar.map((entry) => ({
+    name: entry.name,
+    url: entry.url || null,
+    imageUrl:
+      (Array.isArray(entry.image) &&
+        (entry.image.find((image) => image.size === "large")?.["#text"] || null)) ||
+      null,
+  }));
+  const payload = { status: "available", source: "last.fm", artists };
+  similarArtistsCache.set(cacheKey, { payload, fetchedAt: Date.now() });
+  return payload;
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +337,18 @@ async function tryLyricsOvh(artistName, title) {
   return { hit: true, text, provenance: { provider: "lyrics.ovh" } };
 }
 
+// Loose artist-name comparison so provider fuzzy matches can be checked:
+// equal, or one name contained in the other (feat./punctuation differences).
+function artistNamesCompatible(requested, returned) {
+  const normalize = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const a = normalize(requested);
+  const b = normalize(returned);
+  if (!a || !b) {
+    return false;
+  }
+  return a === b || a.includes(b) || b.includes(a);
+}
+
 async function tryLrclib(artistName, title) {
   const url = new URL(`${LRCLIB_BASE}/get`);
   url.searchParams.set("artist_name", artistName);
@@ -249,6 +370,12 @@ async function tryLrclib(artistName, title) {
     return { hit: false, miss: false, error: `lrclib.net responded with status ${response.status}` };
   }
   const data = await response.json().catch(() => null);
+  // A wrong-artist fuzzy match is a miss, not a hit. (Wrong *versions* with
+  // matching names can still slip through — mislabeled upstream data — which
+  // is why the reader offers a paste-your-own override on provider lyrics.)
+  if (!data?.artistName || !artistNamesCompatible(artistName, data.artistName)) {
+    return { hit: false, miss: true };
+  }
   const text = typeof data?.plainLyrics === "string" ? normalizeLyricText(data.plainLyrics) : "";
   if (!text) {
     return { hit: false, miss: true }; // Synced-only entry with no plain lyrics.
@@ -526,6 +653,15 @@ function requireSongId(req, res) {
   return songId;
 }
 
+function requireArtistId(req, res) {
+  const artistId = req.params.id;
+  if (!/^\d+$/.test(artistId)) {
+    sendApiError(res, new ApiError(400, "bad_request", "Artist id must be a numeric Genius id"));
+    return null;
+  }
+  return artistId;
+}
+
 app.get("/api/songs/:id", async (req, res) => {
   try {
     const songId = requireSongId(req, res);
@@ -544,6 +680,72 @@ app.get("/api/songs/:id/lyrics", async (req, res) => {
     const song = await getGeniusSong(songId);
     const result = await getLyrics(song);
     res.json({ songId, ...result });
+  } catch (error) {
+    sendApiError(res, error);
+  }
+});
+
+// Note: defined before /api/artists/:id so "lookup" is not captured as an id.
+app.get("/api/artists/lookup", async (req, res) => {
+  try {
+    const name = String(req.query.name ?? "").trim();
+    if (!name || name.length > 200) {
+      throw new ApiError(400, "bad_request", "Missing or invalid required query parameter: name");
+    }
+    const artist = await lookupArtistByName(name);
+    res.json({ artist });
+  } catch (error) {
+    sendApiError(res, error);
+  }
+});
+
+app.get("/api/artists/:id", async (req, res) => {
+  try {
+    const artistId = requireArtistId(req, res);
+    if (!artistId) return;
+    const artist = await getGeniusArtist(artistId);
+    res.json({ artist });
+  } catch (error) {
+    sendApiError(res, error);
+  }
+});
+
+app.get("/api/artists/:id/songs", async (req, res) => {
+  try {
+    const artistId = requireArtistId(req, res);
+    if (!artistId) return;
+    const page = Math.trunc(Number(req.query.page) || 1);
+    if (!Number.isInteger(page) || page < 1 || page > 50) {
+      throw new ApiError(400, "bad_request", "page must be an integer between 1 and 50");
+    }
+    const cacheKey = `${artistId}:${page}`;
+    const cached = artistSongsCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < ARTIST_CACHE_TTL_MS) {
+      res.json(cached.payload);
+      return;
+    }
+    const data = await geniusRequest(`/artists/${artistId}/songs`, {
+      page: String(page),
+      per_page: "20",
+    });
+    const songs = (Array.isArray(data?.response?.songs) ? data.response.songs : [])
+      .filter(Boolean)
+      .map(normalizeSong);
+    const payload = { songs, nextPage: data?.response?.next_page ?? null };
+    artistSongsCache.set(cacheKey, { payload, fetchedAt: Date.now() });
+    res.json(payload);
+  } catch (error) {
+    sendApiError(res, error);
+  }
+});
+
+app.get("/api/artists/:id/similar", async (req, res) => {
+  try {
+    const artistId = requireArtistId(req, res);
+    if (!artistId) return;
+    const artist = await getGeniusArtist(artistId);
+    const result = await getSimilarArtists(artist.name);
+    res.json({ artistId, ...result });
   } catch (error) {
     sendApiError(res, error);
   }

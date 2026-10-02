@@ -1,16 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import ArtistContext from "./components/ArtistContext";
+import ArtistPage from "./components/ArtistPage";
 import LyricsReader from "./components/LyricsReader";
 import PasteLyricsBox from "./components/PasteLyricsBox";
+import RecentlyOpened from "./components/RecentlyOpened";
 import SongResults from "./components/SongResults";
 import { requestJson } from "./util/api";
 import "./App.css";
 
+const RECENT_STORAGE_KEY = "rhymes.recent";
+
 function readUrlParams() {
   const params = new URLSearchParams(window.location.search);
-  return { q: (params.get("q") || "").trim(), song: params.get("song") || "" };
+  const numeric = (value) => (/^\d+$/.test(value) ? value : "");
+  return {
+    q: (params.get("q") || "").trim(),
+    song: numeric(params.get("song") || ""),
+    artist: numeric(params.get("artist") || ""),
+  };
 }
 
-function pushUrl({ q, song }) {
+function pushUrl({ q, song, artist }) {
   const params = new URLSearchParams();
   if (q) {
     params.set("q", q);
@@ -18,28 +28,52 @@ function pushUrl({ q, song }) {
   if (song) {
     params.set("song", song);
   }
+  if (artist) {
+    params.set("artist", artist);
+  }
   const search = params.toString();
   window.history.pushState({}, "", `${window.location.pathname}${search ? `?${search}` : ""}`);
 }
 
-// Search and song state are guarded by sequence numbers so a slow response can
-// never overwrite the results of a newer search or song selection.
+// Search, song and artist state are guarded by sequence numbers so a slow
+// response can never overwrite the results of a newer navigation.
 function App() {
-  const initialParams = useRef(readUrlParams());
-  const [inputValue, setInputValue] = useState(initialParams.current.q);
-  const [query, setQuery] = useState(initialParams.current.q);
+  const [inputValue, setInputValue] = useState("");
+  const [query, setQuery] = useState("");
   const [search, setSearch] = useState({ status: "idle", results: null, error: null });
-  const [session, setSession] = useState(() => {
-    const { song } = initialParams.current;
-    return song && /^\d+$/.test(song) ? { kind: "song", songId: song } : null;
-  });
+  // session: { kind: "song", songId, artistId } | { kind: "artist", artistId }
+  //          | { kind: "text" } | null
+  const [session, setSession] = useState(null);
   const [songs, setSongs] = useState({}); // songId -> { meta, lyrics, analysis }
+  const [artists, setArtists] = useState({}); // artistId -> { meta, songs, similar }
   const [paste, setPaste] = useState(null); // { lyrics, analysis } for pasted text
+  const [recent, setRecent] = useState(() => {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(RECENT_STORAGE_KEY) ?? "[]");
+      return Array.isArray(parsed) ? parsed.slice(0, 8) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const searchSeq = useRef(0);
   const songSeq = useRef({});
   const analysisSeq = useRef({});
+  const artistSeq = useRef({});
   const songsRef = useRef({});
+  const artistsRef = useRef({});
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(recent));
+    } catch {
+      // Storage unavailable (private mode etc.) — the trail just won't persist.
+    }
+  }, [recent]);
+
+  const pushRecent = useCallback((entry) => {
+    setRecent((prev) => [entry, ...prev.filter((item) => item.id !== entry.id)].slice(0, 8));
+  }, []);
 
   const patchSong = useCallback((songId, patch) => {
     songsRef.current = {
@@ -48,6 +82,16 @@ function App() {
     };
     setSongs(songsRef.current);
   }, []);
+
+  const patchArtist = useCallback((artistId, patch) => {
+    artistsRef.current = {
+      ...artistsRef.current,
+      [artistId]: { ...artistsRef.current[artistId], ...patch },
+    };
+    setArtists(artistsRef.current);
+  }, []);
+
+  // ---------------------------------------------------------------- analysing
 
   const analyseSong = useCallback(
     async (songId, text) => {
@@ -84,6 +128,8 @@ function App() {
     [patchSong]
   );
 
+  // ------------------------------------------------------------------- songs
+
   const loadSong = useCallback(
     async (songId) => {
       const seq = (songSeq.current[songId] = (songSeq.current[songId] || 0) + 1);
@@ -101,7 +147,7 @@ function App() {
 
       patchSong(songId, {
         meta: { status: "loading", song: null, error: null },
-        lyrics: { status: "idle", text: null, error: null },
+        lyrics: { status: "idle", text: null, error: null, provenance: null },
         analysis: { status: "idle", families: null, tokens: null, error: null },
       });
 
@@ -111,6 +157,12 @@ function App() {
           return;
         }
         patchSong(songId, { meta: { status: "ready", song: data.song, error: null } });
+        pushRecent({
+          id: String(songId),
+          title: data.song.title,
+          artistNames: data.song.artistNames,
+          artistId: data.song.artist?.id ?? null,
+        });
       } catch (error) {
         if (stale()) {
           return;
@@ -146,12 +198,117 @@ function App() {
           return;
         }
         patchSong(songId, {
-          lyrics: { status: "error", text: null, error: error.message },
+          lyrics: { status: "error", text: null, error: error.message, provenance: null },
         });
       }
     },
-    [analyseSong, patchSong]
+    [analyseSong, patchSong, pushRecent]
   );
+
+  // ----------------------------------------------------------------- artists
+
+  const loadArtist = useCallback(
+    async (artistId) => {
+      const seq = (artistSeq.current[artistId] = (artistSeq.current[artistId] || 0) + 1);
+      const stale = () => artistSeq.current[artistId] !== seq;
+      const record = artistsRef.current[artistId] ?? {};
+
+      const jobs = [];
+
+      if (record.meta?.status !== "ready") {
+        patchArtist(artistId, { meta: { status: "loading", artist: null, error: null } });
+        jobs.push((async () => {
+          try {
+            const data = await requestJson(`/api/artists/${artistId}`);
+            if (stale()) return;
+            patchArtist(artistId, { meta: { status: "ready", artist: data.artist, error: null } });
+          } catch (error) {
+            if (stale()) return;
+            patchArtist(artistId, {
+              meta: {
+                status: error.code === "catalogue_unavailable" ? "unavailable" : "error",
+                artist: null,
+                error: error.message,
+              },
+            });
+          }
+        })());
+      }
+
+      if (!record.songs || ["idle", "error"].includes(record.songs.status)) {
+        patchArtist(artistId, {
+          songs: { status: "loading", list: [], page: 0, nextPage: null, error: null },
+        });
+        jobs.push((async () => {
+          try {
+            const data = await requestJson(`/api/artists/${artistId}/songs?page=1`);
+            if (stale()) return;
+            patchArtist(artistId, {
+              songs: { status: "ready", list: data.songs, page: 1, nextPage: data.nextPage, error: null },
+            });
+          } catch (error) {
+            if (stale()) return;
+            patchArtist(artistId, {
+              songs: { status: "error", list: [], page: 0, nextPage: null, error: error.message },
+            });
+          }
+        })());
+      }
+
+      if (!record.similar || ["idle", "error"].includes(record.similar.status)) {
+        patchArtist(artistId, { similar: { status: "loading", list: [], error: null } });
+        jobs.push((async () => {
+          try {
+            const data = await requestJson(`/api/artists/${artistId}/similar`);
+            if (stale()) return;
+            patchArtist(artistId, {
+              similar: {
+                status: data.status,
+                list: data.artists ?? [],
+                source: data.source ?? null,
+                error: data.message ?? null,
+              },
+            });
+          } catch (error) {
+            if (stale()) return;
+            patchArtist(artistId, {
+              similar: { status: "error", list: [], source: null, error: error.message },
+            });
+          }
+        })());
+      }
+
+      await Promise.all(jobs);
+    },
+    [patchArtist]
+  );
+
+  const loadMoreArtistSongs = useCallback(
+    async (artistId, page) => {
+      const record = artistsRef.current[artistId];
+      const known = new Set((record?.songs?.list ?? []).map((song) => song.id));
+      patchArtist(artistId, { songs: { ...record.songs, status: "loading-more" } });
+      try {
+        const data = await requestJson(`/api/artists/${artistId}/songs?page=${page}`);
+        patchArtist(artistId, {
+          songs: {
+            status: "ready",
+            list: [...record.songs.list, ...data.songs.filter((song) => !known.has(song.id))],
+            page,
+            nextPage: data.nextPage,
+            error: null,
+          },
+        });
+      } catch (error) {
+        patchArtist(artistId, {
+          songs: { ...record.songs, status: "error", error: error.message },
+        });
+      }
+    },
+    [patchArtist]
+  );
+
+  // ------------------------------------------------------------------ search
 
   const runSearch = useCallback(async (rawQuery) => {
     const trimmed = rawQuery.trim();
@@ -182,6 +339,8 @@ function App() {
     }
   }, []);
 
+  // --------------------------------------------------------------- navigation
+
   const submitSearch = (raw) => {
     const trimmed = raw.trim();
     if (!trimmed) {
@@ -189,24 +348,47 @@ function App() {
     }
     setInputValue(trimmed);
     setQuery(trimmed);
-    pushUrl({ q: trimmed, song: session?.kind === "song" ? session.songId : "" });
+    pushUrl({
+      q: trimmed,
+      song: session?.kind === "song" ? session.songId : "",
+      artist: session?.artistId ?? "",
+    });
     runSearch(trimmed);
   };
 
-  const openSong = useCallback(
-    (songId, { push = true } = {}) => {
-      setSession({ kind: "song", songId });
-      if (push) {
-        pushUrl({ q: query, song: songId });
-      }
-      loadSong(songId);
-    },
-    [loadSong, query]
-  );
+  const openSong = (songId, artistId = null, { push = true } = {}) => {
+    setSession({ kind: "song", songId: String(songId), artistId: artistId ? String(artistId) : null });
+    if (push) {
+      pushUrl({ q: query, song: String(songId), artist: artistId ? String(artistId) : "" });
+    }
+    loadSong(songId);
+    if (artistId && artistsRef.current[artistId]?.meta?.status !== "ready") {
+      loadArtist(artistId); // Sidebar context: songs by the same artist.
+    }
+  };
+
+  const openArtist = (artistId, { push = true } = {}) => {
+    setSession({ kind: "artist", artistId: String(artistId) });
+    if (push) {
+      pushUrl({ q: query, song: "", artist: String(artistId) });
+    }
+    loadArtist(artistId);
+  };
+
+  // Similar artists come from Last.fm by name; resolve the name back into the
+  // Genius catalogue. If resolution fails, fall back to a plain search.
+  const openArtistByName = async (name) => {
+    try {
+      const data = await requestJson(`/api/artists/lookup?name=${encodeURIComponent(name)}`);
+      openArtist(data.artist.id);
+    } catch {
+      submitSearch(name);
+    }
+  };
 
   const analyzePaste = useCallback(async (text) => {
     setPaste({
-      lyrics: { status: "available", text, error: null },
+      lyrics: { status: "available", text, error: null, provenance: null },
       analysis: { status: "loading", families: null, tokens: null, error: null },
     });
     setSession({ kind: "text" });
@@ -233,45 +415,46 @@ function App() {
     }
   }, []);
 
-  // Restore state from the URL on first load.
+  // Restore app state from the URL — on first load and on back/forward.
+  const restoreFromUrl = () => {
+    const { q, song, artist } = readUrlParams();
+    setInputValue(q);
+    setQuery(q);
+    if (q) {
+      runSearch(q);
+    } else {
+      searchSeq.current++;
+      setSearch({ status: "idle", results: null, error: null });
+    }
+    if (song) {
+      openSong(song, artist || null, { push: false });
+    } else if (artist) {
+      openArtist(artist, { push: false });
+    } else {
+      setSession(null);
+    }
+  };
+
+  const navRef = useRef({});
+  navRef.current = { restoreFromUrl };
   const didInit = useRef(false);
   useEffect(() => {
     if (didInit.current) {
       return;
     }
     didInit.current = true;
-    const { q, song } = initialParams.current;
-    if (q) {
-      runSearch(q);
-    }
-    if (song && /^\d+$/.test(song)) {
-      openSong(song, { push: false });
-    }
-  }, [openSong, runSearch]);
-
-  // Keep browser history navigation (back/forward) in sync with app state.
+    navRef.current.restoreFromUrl();
+  }, []);
   useEffect(() => {
-    const handlePopState = () => {
-      const { q, song } = readUrlParams();
-      setInputValue(q);
-      setQuery(q);
-      if (q) {
-        runSearch(q);
-      } else {
-        searchSeq.current++;
-        setSearch({ status: "idle", results: null, error: null });
-      }
-      if (song && /^\d+$/.test(song)) {
-        openSong(song, { push: false });
-      } else {
-        setSession(null);
-      }
-    };
+    const handlePopState = () => navRef.current.restoreFromUrl();
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [openSong, runSearch]);
+  }, []);
+
+  // ------------------------------------------------------------------ render
 
   const sessionRecord = session?.kind === "song" ? songs[session.songId] : null;
+  const artistRecord = session?.artistId ? artists[session.artistId] : null;
 
   const songResults = (
     <SongResults
@@ -279,16 +462,50 @@ function App() {
       results={search.results}
       error={search.error}
       query={query}
-      onOpenSong={(songId) => openSong(songId)}
-      onArtistSearch={submitSearch}
+      onOpenSong={(song) => openSong(song.id)}
+      onOpenArtist={openArtistByName}
       onRetry={() => query && runSearch(query)}
     />
   );
 
+  const recentlyOpened = (
+    <RecentlyOpened items={recent} onOpen={(item) => openSong(item.id, item.artistId)} />
+  );
+
+  const renderSidebar = () => {
+    if (session?.kind === "song" && session.artistId && artistRecord) {
+      const artistName = artistRecord.meta?.artist?.name ?? "Artist";
+      if (artistRecord.songs?.list?.length) {
+        return (
+          <ArtistContext
+            artistName={artistName}
+            songs={artistRecord.songs.list}
+            onOpenSong={(song) => openSong(song.id, session.artistId)}
+            onOpenArtistPage={() => openArtist(session.artistId)}
+          />
+        );
+      }
+      if (artistRecord.songs?.status === "loading") {
+        return <p className="status status--loading">Loading artist songs…</p>;
+      }
+    }
+    if (search.status !== "idle") {
+      return songResults;
+    }
+    return recentlyOpened;
+  };
+
   return (
     <div className="app">
       <header className="app-header">
-        <span className="app-header__brand">Rhymes Highlighter</span>
+        <div className="app-header__left">
+          <span className="app-header__brand">Rhymes Highlighter</span>
+          {session && (
+            <button type="button" className="link-button app-header__back" onClick={() => window.history.back()}>
+              ← Back
+            </button>
+          )}
+        </div>
         <form
           className="app-header__search"
           onSubmit={(event) => {
@@ -312,7 +529,7 @@ function App() {
 
       {session ? (
         <main className="layout layout--with-session">
-          <div className="layout__reader">
+          <div className="layout__main">
             {session.kind === "song" && sessionRecord && (
               <LyricsReader
                 key={`song-${session.songId}`}
@@ -324,9 +541,20 @@ function App() {
                   sessionRecord.lyrics?.text && analyseSong(session.songId, sessionRecord.lyrics.text)
                 }
                 onPasteText={(text) => {
-                  patchSong(session.songId, { lyrics: { status: "pasted", text, error: null } });
+                  patchSong(session.songId, {
+                    lyrics: { status: "pasted", text, error: null, provenance: null },
+                  });
                   analyseSong(session.songId, text);
                 }}
+              />
+            )}
+            {session.kind === "artist" && (
+              <ArtistPage
+                record={artistRecord ?? {}}
+                onOpenSong={(song) => openSong(song.id, session.artistId)}
+                onOpenSimilarArtist={openArtistByName}
+                onLoadMoreSongs={(page) => loadMoreArtistSongs(session.artistId, page)}
+                onRetry={() => loadArtist(session.artistId)}
               />
             )}
             {session.kind === "text" && paste && (
@@ -341,7 +569,7 @@ function App() {
               />
             )}
           </div>
-          <div className="layout__results">{songResults}</div>
+          <div className="layout__side">{renderSidebar()}</div>
         </main>
       ) : (
         <main className="layout layout--home">
