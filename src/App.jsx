@@ -6,6 +6,11 @@ import PasteLyricsBox from "./components/PasteLyricsBox";
 import RecentlyOpened from "./components/RecentlyOpened";
 import SongResults from "./components/SongResults";
 import { requestJson } from "./util/api";
+import {
+  loadAnalysisIndex,
+  persistAnalysisIndex,
+  upsertAnalysisEntry,
+} from "./util/analysisIndex";
 import "./App.css";
 
 const RECENT_STORAGE_KEY = "rhymes.recent";
@@ -47,6 +52,7 @@ function App() {
   const [songs, setSongs] = useState({}); // songId -> { meta, lyrics, analysis }
   const [artists, setArtists] = useState({}); // artistId -> { meta, songs, similar }
   const [paste, setPaste] = useState(null); // { lyrics, analysis } for pasted text
+  const [analysisIndex, setAnalysisIndex] = useState(loadAnalysisIndex);
   const [recent, setRecent] = useState(() => {
     try {
       const parsed = JSON.parse(window.localStorage.getItem(RECENT_STORAGE_KEY) ?? "[]");
@@ -71,6 +77,10 @@ function App() {
     }
   }, [recent]);
 
+  useEffect(() => {
+    persistAnalysisIndex(analysisIndex);
+  }, [analysisIndex]);
+
   const pushRecent = useCallback((entry) => {
     setRecent((prev) => [entry, ...prev.filter((item) => item.id !== entry.id)].slice(0, 8));
   }, []);
@@ -92,6 +102,29 @@ function App() {
   }, []);
 
   // ---------------------------------------------------------------- analysing
+
+  // Record a finished analysis in the local analysed-songs index so it can be
+  // compared against and searched for shared rhyme sounds later.
+  const recordAnalysis = useCallback((songId, data) => {
+    const meta = songsRef.current[songId]?.meta?.song;
+    if (!meta || !data.metrics) {
+      return;
+    }
+    const entry = {
+      id: String(songId),
+      title: meta.title,
+      artistNames: meta.artistNames,
+      artistId: meta.artist?.id ?? null,
+      metrics: data.metrics,
+      families: (data.families ?? []).map((family) => ({
+        id: family.id,
+        label: family.label,
+        words: family.words ?? [],
+      })),
+      analysedAt: Date.now(),
+    };
+    setAnalysisIndex((prev) => upsertAnalysisEntry(prev, entry));
+  }, []);
 
   const analyseSong = useCallback(
     async (songId, text) => {
@@ -116,6 +149,7 @@ function App() {
             error: data.error ?? null,
           },
         });
+        recordAnalysis(songId, data);
       } catch (error) {
         if (analysisSeq.current[songId] !== seq) {
           return;
@@ -125,7 +159,7 @@ function App() {
         });
       }
     },
-    [patchSong]
+    [patchSong, recordAnalysis]
   );
 
   // ------------------------------------------------------------------- songs
@@ -533,6 +567,9 @@ function App() {
             {session.kind === "song" && sessionRecord && (
               <LyricsReader
                 key={`song-${session.songId}`}
+                songId={session.songId}
+                analysisIndex={analysisIndex}
+                onOpenSong={(songId, artistId) => openSong(songId, artistId)}
                 meta={sessionRecord.meta ?? { status: "loading" }}
                 lyrics={sessionRecord.lyrics ?? { status: "idle" }}
                 analysis={sessionRecord.analysis ?? { status: "idle" }}

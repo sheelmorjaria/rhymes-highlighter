@@ -2,12 +2,23 @@ import { useEffect, useMemo, useState } from "react";
 import PasteLyricsBox from "./PasteLyricsBox";
 import RhymeLegend from "./RhymeLegend";
 import RhymesOutput from "./RhymesOutput";
+import WritingPatterns from "./WritingPatterns";
 import { assignFamilyColors } from "../util/familyColors";
 
 // The lyric reader. It shows the selected song's identity immediately, keeps
 // the text readable while rhyme analysis is still running, and distinguishes
 // "lyrics unavailable", "analysis failed" and "no rhymes found" from each other.
-const LyricsReader = ({ meta, lyrics, analysis, onRetrySong, onRetryAnalysis, onPasteText }) => {
+const LyricsReader = ({
+  songId,
+  meta,
+  lyrics,
+  analysis,
+  analysisIndex = [],
+  onRetrySong,
+  onRetryAnalysis,
+  onPasteText,
+  onOpenSong,
+}) => {
   const [viewMode, setViewMode] = useState("all"); // "all" | "family" | "plain"
   const [selectedFamilyId, setSelectedFamilyId] = useState(null);
   const [occurrenceIndex, setOccurrenceIndex] = useState(0);
@@ -306,6 +317,15 @@ const LyricsReader = ({ meta, lyrics, analysis, onRetrySong, onRetryAnalysis, on
     <article className="reader" aria-label="Lyric reader">
       <header className="reader__header">{renderHeader()}</header>
       {renderBody()}
+      {songId && analysis?.metrics && (
+        <WritingPatterns
+          songId={songId}
+          song={meta?.song}
+          analysis={analysis}
+          index={analysisIndex}
+          onOpenSong={onOpenSong}
+        />
+      )}
       {renderOverride()}
     </article>
   );

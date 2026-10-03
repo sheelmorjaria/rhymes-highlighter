@@ -254,6 +254,9 @@ async function getSimilarArtists(artistName) {
   try {
     data = await fetchJson(url, { timeoutMs: 8000 });
   } catch (error) {
+    if (error.upstreamStatus === 403 || error.upstreamStatus === 401) {
+      return { status: "error", message: "Last.fm rejected the API key — check LASTFM_API_KEY" };
+    }
     return { status: "error", message: `Last.fm ${error.message}` };
   }
   if (data?.error) {
@@ -433,7 +436,7 @@ async function getLyrics(song) {
 // Rhyme analyser
 // ---------------------------------------------------------------------------
 
-const ANALYSIS_VERSION = "2";
+const ANALYSIS_VERSION = "3";
 const DATAMUSE_URL = "https://api.datamuse.com/words";
 const DATAMUSE_CONCURRENCY = 8;
 const DATAMUSE_TIMEOUT_MS = 8000;
@@ -494,18 +497,6 @@ async function lookupRhymes(word) {
   return result;
 }
 
-function rhymesWith(rhymeSets, a, b) {
-  if (a === b) {
-    return false; // Repeated words are repetition, not rhyme.
-  }
-  const setA = rhymeSets.get(a);
-  if (setA && setA.has(b)) {
-    return true;
-  }
-  const setB = rhymeSets.get(b);
-  return Boolean(setB && setB.has(a));
-}
-
 function familyLabel(index) {
   let label = "";
   let n = index;
@@ -516,87 +507,213 @@ function familyLabel(index) {
   return label;
 }
 
+// Union-find over unique words, used to build rhyme families as connected
+// components: an edge joins two words when one appears in the other's Datamuse
+// rhyme list. A family is a component with at least two distinct words — in
+// effect a rime class ("light / night / write"). This is order-independent and
+// deterministic, unlike the earlier greedy first-match clustering.
+function buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord) {
+  const parent = new Map(uniqueWords.map((word) => [word, word]));
+  const find = (word) => {
+    let root = word;
+    while (parent.get(root) !== root) {
+      root = parent.get(root);
+    }
+    let current = word;
+    while (parent.get(current) !== root) {
+      const next = parent.get(current);
+      parent.set(current, root);
+      current = next;
+    }
+    return root;
+  };
+  const union = (a, b) => {
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) {
+      parent.set(rootA, rootB);
+    }
+  };
+
+  const present = new Set(uniqueWords);
+  for (const word of uniqueWords) {
+    const rhymes = rhymeSets.get(word);
+    if (!rhymes) {
+      continue; // Failed lookup: this word gets no edges.
+    }
+    for (const candidate of rhymes) {
+      if (candidate !== word && present.has(candidate)) {
+        union(word, candidate);
+      }
+    }
+  }
+
+  const wordsByRoot = new Map();
+  for (const word of uniqueWords) {
+    const root = find(word);
+    const list = wordsByRoot.get(root);
+    if (list) {
+      list.push(word);
+    } else {
+      wordsByRoot.set(root, [word]);
+    }
+  }
+
+  // Order families by first appearance in the text so ids and colours are stable.
+  const groups = [...wordsByRoot.values()]
+    .filter((words) => words.length >= 2)
+    .map((words) => words.slice().sort((a, b) => firstIndexOfWord.get(a) - firstIndexOfWord.get(b)))
+    .sort(
+      (a, b) => firstIndexOfWord.get(a[0]) - firstIndexOfWord.get(b[0])
+    );
+
+  const families = groups.map((words, index) => ({
+    id: `family-${index + 1}`,
+    label: familyLabel(index),
+    words,
+    examples: words.slice(0, 3),
+  }));
+  return families;
+}
+
+// Writing-pattern measurements. Lines come from "\n" positions relative to
+// token offsets; a token is line-ending when the next token starts a new line.
+function computeMetrics(text, tokens) {
+  const wordCount = tokens.length;
+  const uniqueWordCount = new Set(tokens.map((token) => token.word)).size;
+
+  const tokenLines = new Array(wordCount);
+  let lineNo = 0;
+  let scanFrom = 0;
+  for (let i = 0; i < wordCount; i++) {
+    for (let pos = scanFrom; pos < tokens[i].start; pos++) {
+      if (text.charCodeAt(pos) === 10) {
+        lineNo++;
+      }
+    }
+    scanFrom = tokens[i].start;
+    tokenLines[i] = lineNo;
+  }
+
+  let familyTokenCount = 0;
+  let lineEndRhymeCount = 0;
+  let internalRhymeCount = 0;
+  const linesByFamily = new Map();
+  const occurrencesByFamily = new Map();
+  for (let i = 0; i < wordCount; i++) {
+    const familyId = tokens[i].familyId;
+    if (!familyId) {
+      continue;
+    }
+    familyTokenCount++;
+    if (i === wordCount - 1 || tokenLines[i] !== tokenLines[i + 1]) {
+      lineEndRhymeCount++;
+    } else {
+      internalRhymeCount++;
+    }
+    let lines = linesByFamily.get(familyId);
+    if (!lines) {
+      lines = new Set();
+      linesByFamily.set(familyId, lines);
+    }
+    lines.add(tokenLines[i]);
+    let occurrences = occurrencesByFamily.get(familyId);
+    if (!occurrences) {
+      occurrences = [];
+      occurrencesByFamily.set(familyId, occurrences);
+    }
+    occurrences.push(i);
+  }
+
+  // Spacing: distance (in word positions) between consecutive occurrences of
+  // the same family — how tightly rhymes cluster within the text.
+  const gaps = [];
+  for (const occurrences of occurrencesByFamily.values()) {
+    for (let i = 1; i < occurrences.length; i++) {
+      gaps.push(occurrences[i] - occurrences[i - 1]);
+    }
+  }
+
+  return {
+    wordCount,
+    uniqueWordCount,
+    // Repeated words measured separately so choruses don't inflate rhyme stats.
+    repetitionRate: wordCount > 0 ? 1 - uniqueWordCount / wordCount : 0,
+    familyCount: occurrencesByFamily.size,
+    // Share of word occurrences in a family that contains a different word.
+    rhymeDensity: wordCount > 0 ? familyTokenCount / wordCount : 0,
+    internalRhymeCount,
+    lineEndRhymeCount,
+    avgRhymeSpacing: gaps.length > 0 ? gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length : null,
+    recurringFamilyShare:
+      occurrencesByFamily.size > 0
+        ? [...linesByFamily.values()].filter((lines) => lines.size >= 2).length / occurrencesByFamily.size
+        : null,
+  };
+}
+
 async function analyseText(text) {
   const tokens = tokenize(text);
   const uniqueWords = [...new Set(tokens.map((token) => token.word))];
-  const stats = {
-    wordCount: tokens.length,
-    uniqueWordCount: uniqueWords.length,
-    failedLookupCount: 0,
-  };
-  const base = { analysisVersion: ANALYSIS_VERSION, families: [], tokens: [], stats };
 
   if (uniqueWords.length === 0) {
-    return { ...base, status: "empty" };
+    return {
+      analysisVersion: ANALYSIS_VERSION,
+      status: "empty",
+      families: [],
+      tokens: [],
+      metrics: null,
+      stats: { failedLookupCount: 0 },
+    };
   }
 
   const rhymeSets = new Map();
   await mapLimit(uniqueWords, DATAMUSE_CONCURRENCY, async (word) => {
     rhymeSets.set(word, await lookupRhymes(word));
   });
-  stats.failedLookupCount = uniqueWords.filter((word) => rhymeSets.get(word) === null).length;
+  const failedLookupCount = uniqueWords.filter((word) => rhymeSets.get(word) === null).length;
 
-  if (stats.failedLookupCount === uniqueWords.length) {
+  if (failedLookupCount === uniqueWords.length) {
     return {
-      ...base,
+      analysisVersion: ANALYSIS_VERSION,
       status: "failed",
       error: "The rhyme service could not be reached, so no rhymes could be identified.",
+      families: [],
+      tokens: [],
+      metrics: null,
+      stats: { failedLookupCount },
     };
   }
 
-  // Greedy first-match clustering: each word joins the first cluster whose seed
-  // word it rhymes with, otherwise it seeds a new cluster. Order-dependent by
-  // design; revisit before deriving artist-level statistics from it.
-  const clusters = [];
-  for (const [index, token] of tokens.entries()) {
-    let placed = false;
-    for (const cluster of clusters) {
-      if (rhymesWith(rhymeSets, token.word, cluster.seed)) {
-        cluster.tokenIndexes.push(index);
-        placed = true;
-        break;
-      }
+  const firstIndexOfWord = new Map();
+  tokens.forEach((token, index) => {
+    if (!firstIndexOfWord.has(token.word)) {
+      firstIndexOfWord.set(token.word, index);
     }
-    if (!placed) {
-      clusters.push({ seed: token.word, tokenIndexes: [index] });
-    }
-  }
+  });
 
-  const families = [];
-  const familyIdByTokenIndex = new Map();
-  const seenWordsByFamily = [];
-  for (const cluster of clusters) {
-    if (cluster.tokenIndexes.length < 2) {
-      continue; // No rhyme partner for this word anywhere in the text.
-    }
-    const id = `family-${families.length + 1}`;
-    const seen = new Set();
-    const examples = [];
-    for (const tokenIndex of cluster.tokenIndexes) {
-      const word = tokens[tokenIndex].word;
-      familyIdByTokenIndex.set(tokenIndex, id);
-      if (!seen.has(word)) {
-        seen.add(word);
-        if (examples.length < 3) {
-          examples.push(word);
-        }
-      }
-    }
-    seenWordsByFamily.push(seen);
-    families.push({
-      id,
-      label: familyLabel(families.length),
-      examples,
-      count: cluster.tokenIndexes.length,
-    });
+  const families = buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord);
+  const familyIdByWord = new Map(
+    families.flatMap((family) => family.words.map((word) => [word, family.id]))
+  );
+  const outTokens = tokens.map((token) => ({
+    ...token,
+    familyId: familyIdByWord.get(token.word) ?? null,
+  }));
+  for (const family of families) {
+    family.count = outTokens.reduce(
+      (count, token) => count + (token.familyId === family.id ? 1 : 0),
+      0
+    );
   }
 
   return {
     analysisVersion: ANALYSIS_VERSION,
-    status: stats.failedLookupCount > 0 ? "partial" : "ready",
+    status: failedLookupCount > 0 ? "partial" : "ready",
     families,
-    tokens: tokens.map((token, index) => ({ ...token, familyId: familyIdByTokenIndex.get(index) ?? null })),
-    stats,
+    tokens: outTokens,
+    metrics: computeMetrics(text, outTokens),
+    stats: { failedLookupCount },
   };
 }
 

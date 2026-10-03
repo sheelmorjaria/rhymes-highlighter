@@ -43,11 +43,20 @@ meaningful HTTP status.
 ## How highlighting works
 
 The backend tokenises the text, looks up rhymes for each unique word at
-Datamuse (cached, bounded concurrency), and clusters words greedily: a word
-joins the first cluster whose seed word it rhymes with. Clusters with a rhyme
-partner become **families** with stable ids. The frontend renders the original
-text verbatim (spacing, punctuation, casing, line breaks) and paints only the
-word spans, assigning each family a deterministic colour from a fixed palette.
+Datamuse (cached, bounded concurrency), and groups words into **families** as
+connected rhyme components — in effect rime classes ("light / night / write").
+Every occurrence of a family's words is coloured, repeats included; a word
+that only repeats itself doesn't form a family. The frontend renders the
+original text verbatim (spacing, punctuation, casing, line breaks) and paints
+only the word spans, assigning each family a deterministic colour from a fixed
+palette.
+
+Each analysis also produces **writing-pattern metrics** (rhyme density,
+internal vs line-end rhymes, average rhyme spacing, recurring families,
+repeated-word share) shown in the reader's "Writing patterns" panel, with
+side-by-side comparison against other songs you've analysed and a
+"rhyme sounds shared with other analysed songs" search — every claim is a
+click away from the highlighted lyrics it came from.
 
 ## Deployment
 

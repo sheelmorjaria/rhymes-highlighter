@@ -517,6 +517,114 @@
   padding-top: 0.9rem;
 }
 
+/* Writing patterns (metrics, comparison, shared rhyme sounds) */
+
+.patterns {
+  margin-top: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1rem;
+}
+
+.patterns summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #111827;
+}
+
+.patterns__sample {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  color: #6b7280;
+  font-size: 0.88rem;
+}
+
+.patterns__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+}
+
+.patterns__cell {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+}
+
+.patterns__cell dt {
+  font-size: 0.82rem;
+  color: #6b7280;
+  cursor: help;
+}
+
+.patterns__cell dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+
+.patterns__compare {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.6rem;
+  justify-self: start;
+}
+
+.patterns__compare label {
+  font-weight: 600;
+}
+
+.patterns__compare select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  max-width: 100%;
+}
+
+.patterns__table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 560px;
+  font-variant-numeric: tabular-nums;
+}
+
+.patterns__table th,
+.patterns__table td {
+  border: 1px solid #e5e7eb;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  font-size: 0.92rem;
+}
+
+.patterns__table thead th {
+  background: #f9fafb;
+}
+
+.patterns__table tbody th {
+  font-weight: 500;
+  color: #374151;
+}
+
+.patterns__shared {
+  margin-top: 1.25rem;
+}
+
+.patterns__shared h4 {
+  margin: 0 0 0.5rem;
+}
+
+.patterns__shared ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.4rem;
+  color: #374151;
+}
+
 /* Lyrics text. pre-wrap preserves the original spacing and stanza breaks. */
 
 .lyrics {
