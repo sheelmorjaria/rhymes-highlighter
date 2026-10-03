@@ -628,7 +628,9 @@ function buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord, aliasOwners
   const rimeIndex = getRimeIndex();
   const wordsByRime = new Map();
   for (const word of uniqueWords) {
-    const key = rimeIndex.get(word);
+    // Clipped words ("livin") aren't in CMUdict; match via their +g form.
+    const clipped = CLIPPED_IN_RE.test(word) && word.length >= 5;
+    const key = rimeIndex.get(word) ?? (clipped ? rimeIndex.get(`${word}g`) : undefined);
     if (!key) {
       continue;
     }
