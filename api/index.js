@@ -437,12 +437,16 @@ async function getLyrics(song) {
 // Rhyme analyser
 // ---------------------------------------------------------------------------
 
-const ANALYSIS_VERSION = "5";
+const ANALYSIS_VERSION = "6";
 const DATAMUSE_URL = "https://api.datamuse.com/words";
-const DATAMUSE_CONCURRENCY = 8;
+const DATAMUSE_CONCURRENCY = 12;
 const DATAMUSE_TIMEOUT_MS = 8000;
 const MAX_TEXT_LENGTH = 20000;
-const MAX_UNIQUE_WORDS = 600;
+const MAX_UNIQUE_WORDS = 1200;
+// For very long texts, Datamuse (perfect + near rhymes) runs on the first
+// DATAMUSE_UNIQUE_WORD_BUDGET unique words only; the rest are still matched
+// by the local CMUdict sound engine, and the skipped count is reported.
+const DATAMUSE_UNIQUE_WORD_BUDGET = 600;
 
 const WORD_RE = /[A-Za-zÀ-ÖØ-öø-ÿ''']+/g;
 const rhymeCache = new Map(); // word -> Set<string> of rhymes, or null when the lookup failed
@@ -815,17 +819,19 @@ async function analyseText(text) {
       families: [],
       tokens: [],
       metrics: null,
-      stats: { failedLookupCount: 0 },
+      stats: { failedLookupCount: 0, skippedLookupCount: 0 },
     };
   }
 
   const rhymeSets = new Map();
-  await mapLimit(uniqueWords, DATAMUSE_CONCURRENCY, async (word) => {
+  const datamuseWords = uniqueWords.slice(0, DATAMUSE_UNIQUE_WORD_BUDGET);
+  const skippedLookupCount = uniqueWords.length - datamuseWords.length;
+  await mapLimit(datamuseWords, DATAMUSE_CONCURRENCY, async (word) => {
     rhymeSets.set(word, await lookupRhymes(word));
   });
-  const failedLookupCount = uniqueWords.filter((word) => rhymeSets.get(word) === null).length;
+  const failedLookupCount = datamuseWords.filter((word) => rhymeSets.get(word) === null).length;
 
-  if (failedLookupCount === uniqueWords.length) {
+  if (failedLookupCount === datamuseWords.length && datamuseWords.length > 0) {
     return {
       analysisVersion: ANALYSIS_VERSION,
       status: "failed",
@@ -833,7 +839,7 @@ async function analyseText(text) {
       families: [],
       tokens: [],
       metrics: null,
-      stats: { failedLookupCount },
+      stats: { failedLookupCount, skippedLookupCount },
     };
   }
 
@@ -873,7 +879,7 @@ async function analyseText(text) {
     families,
     tokens: outTokens,
     metrics: computeMetrics(text, outTokens),
-    stats: { failedLookupCount },
+    stats: { failedLookupCount, skippedLookupCount },
   };
 }
 

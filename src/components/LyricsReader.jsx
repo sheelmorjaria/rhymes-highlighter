@@ -183,21 +183,30 @@ const LyricsReader = ({
         </p>
       );
     }
+    const notes = [];
     if (analysis?.status === "partial") {
-      return (
-        <p className="status status--warn" aria-live="polite">
+      notes.push(
+        <p key="partial" className="status status--warn" aria-live="polite">
           Partial analysis — some rhyme lookups failed, so a few rhymes may be missing.
         </p>
       );
     }
+    if ((analysis?.stats?.skippedLookupCount ?? 0) > 0) {
+      notes.push(
+        <p key="skipped" className="status status--info" aria-live="polite">
+          Long text — online rhyme lookups covered the first 600 unique words; the rest were matched
+          by pronunciation only.
+        </p>
+      );
+    }
     if (analysis?.status === "empty" || (analysisUsable && families.length === 0)) {
-      return (
-        <p className="status status--info" aria-live="polite">
+      notes.push(
+        <p key="no-families" className="status status--info" aria-live="polite">
           No rhyme families were found in this text.
         </p>
       );
     }
-    return null;
+    return notes.length > 0 ? notes : null;
   };
 
   // Provider lyrics can be wrong (mislabeled versions upstream). Rather than
