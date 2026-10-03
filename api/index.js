@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { dictionary as CMU_DICTIONARY } from "cmu-pronouncing-dictionary";
 
 // Load a local .env (if present) so `npm start` picks up GENIUS_ACCESS_TOKEN
 // and friends without requiring node CLI flags. Vercel injects env vars itself.
@@ -436,7 +437,7 @@ async function getLyrics(song) {
 // Rhyme analyser
 // ---------------------------------------------------------------------------
 
-const ANALYSIS_VERSION = "3";
+const ANALYSIS_VERSION = "5";
 const DATAMUSE_URL = "https://api.datamuse.com/words";
 const DATAMUSE_CONCURRENCY = 8;
 const DATAMUSE_TIMEOUT_MS = 8000;
@@ -474,27 +475,90 @@ function tokenize(text) {
   return tokens;
 }
 
+async function datamuseRequest(param, word) {
+  const url = new URL(DATAMUSE_URL);
+  url.searchParams.set(param, word);
+  // Optional today; Datamuse has announced keys will be required from 2027.
+  if (process.env.DATAMUSE_API_KEY) {
+    url.searchParams.set("key", process.env.DATAMUSE_API_KEY);
+  }
+  const response = await fetchJson(url, { timeoutMs: DATAMUSE_TIMEOUT_MS });
+  return Array.isArray(response) ? response.map((entry) => String(entry.word).toLowerCase()) : [];
+}
+
+// Rhymes for a word: Datamuse perfect rhymes (rel_rhy) + near rhymes (rel_nry),
+// and — for clipped spellings like "hustlin" that Datamuse doesn't know — the
+// same lookups for the +g form ("hustling"). Resolves to null only when every
+// request failed, keeping "lookup failed" distinct from "no rhymes".
+const CLIPPED_IN_RE = /in$/;
 async function lookupRhymes(word) {
   if (rhymeCache.has(word)) {
     return rhymeCache.get(word);
   }
-  let result = null;
-  try {
-    const url = new URL(DATAMUSE_URL);
-    url.searchParams.set("rel_rhy", word);
-    // Optional today; Datamuse has announced keys will be required from 2027.
-    if (process.env.DATAMUSE_API_KEY) {
-      url.searchParams.set("key", process.env.DATAMUSE_API_KEY);
-    }
-    const response = await fetchJson(url, { timeoutMs: DATAMUSE_TIMEOUT_MS });
-    if (Array.isArray(response)) {
-      result = new Set(response.map((entry) => String(entry.word).toLowerCase()));
-    }
-  } catch {
-    result = null; // A failed lookup is distinct from "no rhymes".
+  const queries = [
+    ["rel_rhy", word],
+    ["rel_nry", word],
+  ];
+  if (CLIPPED_IN_RE.test(word) && word.length >= 5) {
+    queries.push(["rel_rhy", `${word}g`], ["rel_nry", `${word}g`]);
   }
+  const responses = await Promise.all(
+    queries.map(([param, lookupWord]) => datamuseRequest(param, lookupWord).catch(() => null))
+  );
+  const successes = responses.filter(Array.isArray);
+  const result = successes.length > 0 ? new Set(successes.flat()) : null;
   rhymeCache.set(word, result);
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Final-syllable sound matching (rap-style slant rhymes) via CMUdict.
+// Datamuse has no relation between "metropolis" and "this"; their final
+// syllables share the same rime once stress and the ah/ih reduction are
+// ignored, which is exactly the loose matching lyric writing uses.
+// ---------------------------------------------------------------------------
+
+const CMU_VOWEL_RE = /^(AA|AE|AH|AO|AW|AY|EH|ER|EY|IH|IY|OW|OY|UH|UW)([0-2])?$/;
+let rimeIndexCache = null; // Map lowercase word -> rime key (built lazily)
+
+function buildRimeIndex() {
+  const index = new Map();
+  for (const [entry, pronunciation] of Object.entries(CMU_DICTIONARY)) {
+    const word = entry.toLowerCase();
+    if (index.has(word)) {
+      continue; // First pronunciation wins; alternates ("READ(1)") are skipped.
+    }
+    const phones = pronunciation.split(" ");
+    let lastVowel = -1;
+    for (let i = 0; i < phones.length; i++) {
+      if (CMU_VOWEL_RE.test(phones[i])) {
+        lastVowel = i;
+      }
+    }
+    if (lastVowel === -1) {
+      continue;
+    }
+    // Rime = final vowel onward. Stress digits are dropped; AH and IH merge
+    // (unstressed reduction makes them near-identical in sung/rap delivery).
+    const parts = [];
+    for (let i = lastVowel; i < phones.length; i++) {
+      const match = phones[i].match(/^([A-Z]+?)([0-2])?$/);
+      if (!match) {
+        parts.length = 0;
+        break;
+      }
+      parts.push(i === lastVowel && (match[1] === "AH" || match[1] === "IH") ? "X" : match[1]);
+    }
+    if (parts.length > 0) {
+      index.set(word, parts.join(" "));
+    }
+  }
+  rimeIndexCache = index;
+  return index;
+}
+
+function getRimeIndex() {
+  return rimeIndexCache ?? buildRimeIndex();
 }
 
 function familyLabel(index) {
@@ -508,11 +572,13 @@ function familyLabel(index) {
 }
 
 // Union-find over unique words, used to build rhyme families as connected
-// components: an edge joins two words when one appears in the other's Datamuse
-// rhyme list. A family is a component with at least two distinct words — in
-// effect a rime class ("light / night / write"). This is order-independent and
-// deterministic, unlike the earlier greedy first-match clustering.
-function buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord) {
+// components. Three edge sources, all loose in the way lyric writing is:
+//   1. Datamuse: one word appears in the other's perfect/near rhyme list.
+//   2. Clipped-form aliases: "hustlin" matches rhymes of "hustling".
+//   3. CMUdict final-syllable rime sharing, stress-insensitive.
+// A family is a component with at least two distinct words. This is
+// order-independent and deterministic.
+function buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord, aliasOwners) {
   const parent = new Map(uniqueWords.map((word) => [word, word]));
   const find = (word) => {
     let root = word;
@@ -536,15 +602,46 @@ function buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord) {
   };
 
   const present = new Set(uniqueWords);
+  for (const alias of aliasOwners.keys()) {
+    present.add(alias);
+  }
   for (const word of uniqueWords) {
     const rhymes = rhymeSets.get(word);
     if (!rhymes) {
-      continue; // Failed lookup: this word gets no edges.
+      continue; // Failed lookup: this word gets no Datamuse edges.
     }
     for (const candidate of rhymes) {
-      if (candidate !== word && present.has(candidate)) {
-        union(word, candidate);
+      if (candidate === word) {
+        continue;
       }
+      if (present.has(candidate)) {
+        union(word, candidate);
+      } else {
+        const owner = aliasOwners.get(candidate);
+        if (owner && owner !== word) {
+          union(word, owner); // e.g. "bustling" in a rhyme list -> "bustlin"
+        }
+      }
+    }
+  }
+
+  const rimeIndex = getRimeIndex();
+  const wordsByRime = new Map();
+  for (const word of uniqueWords) {
+    const key = rimeIndex.get(word);
+    if (!key) {
+      continue;
+    }
+    const list = wordsByRime.get(key);
+    if (list) {
+      list.push(word);
+    } else {
+      wordsByRime.set(key, [word]);
+    }
+  }
+  for (const words of wordsByRime.values()) {
+    for (let i = 1; i < words.length; i++) {
+      union(words[0], words[i]);
     }
   }
 
@@ -576,8 +673,25 @@ function buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord) {
   return families;
 }
 
+// Stanzas (verses, choruses, bridges…) as blank-line-separated blocks of the
+// original text. Returns char ranges; token membership is derived by offset.
+function stanzaRanges(text) {
+  const ranges = [];
+  const blankLine = /\n[ \t\r]*(?:\n[ \t\r]*)+/g;
+  let cursor = 0;
+  let match;
+  while ((match = blankLine.exec(text)) !== null) {
+    ranges.push([cursor, match.index]);
+    cursor = match.index + match[0].length;
+  }
+  ranges.push([cursor, text.length]);
+  return ranges.filter(([start, end]) => text.slice(start, end).trim().length > 0);
+}
+
 // Writing-pattern measurements. Lines come from "\n" positions relative to
 // token offsets; a token is line-ending when the next token starts a new line.
+// measure(from, to) computes the rhyme measurements over a token range, so the
+// whole song and each stanza are measured with exactly the same definitions.
 function computeMetrics(text, tokens) {
   const wordCount = tokens.length;
   const uniqueWordCount = new Set(tokens.map((token) => token.word)).size;
@@ -595,42 +709,86 @@ function computeMetrics(text, tokens) {
     tokenLines[i] = lineNo;
   }
 
-  let familyTokenCount = 0;
-  let lineEndRhymeCount = 0;
-  let internalRhymeCount = 0;
-  const linesByFamily = new Map();
-  const occurrencesByFamily = new Map();
-  for (let i = 0; i < wordCount; i++) {
-    const familyId = tokens[i].familyId;
-    if (!familyId) {
-      continue;
+  const measure = (from, to) => {
+    let familyTokenCount = 0;
+    let lineEndRhymeCount = 0;
+    let internalRhymeCount = 0;
+    const linesByFamily = new Map();
+    const occurrencesByFamily = new Map();
+    for (let i = from; i < to; i++) {
+      const familyId = tokens[i].familyId;
+      if (!familyId) {
+        continue;
+      }
+      familyTokenCount++;
+      if (i === to - 1 || tokenLines[i] !== tokenLines[i + 1]) {
+        lineEndRhymeCount++;
+      } else {
+        internalRhymeCount++;
+      }
+      let lines = linesByFamily.get(familyId);
+      if (!lines) {
+        lines = new Set();
+        linesByFamily.set(familyId, lines);
+      }
+      lines.add(tokenLines[i]);
+      let occurrences = occurrencesByFamily.get(familyId);
+      if (!occurrences) {
+        occurrences = [];
+        occurrencesByFamily.set(familyId, occurrences);
+      }
+      occurrences.push(i);
     }
-    familyTokenCount++;
-    if (i === wordCount - 1 || tokenLines[i] !== tokenLines[i + 1]) {
-      lineEndRhymeCount++;
-    } else {
-      internalRhymeCount++;
-    }
-    let lines = linesByFamily.get(familyId);
-    if (!lines) {
-      lines = new Set();
-      linesByFamily.set(familyId, lines);
-    }
-    lines.add(tokenLines[i]);
-    let occurrences = occurrencesByFamily.get(familyId);
-    if (!occurrences) {
-      occurrences = [];
-      occurrencesByFamily.set(familyId, occurrences);
-    }
-    occurrences.push(i);
-  }
 
-  // Spacing: distance (in word positions) between consecutive occurrences of
-  // the same family — how tightly rhymes cluster within the text.
-  const gaps = [];
-  for (const occurrences of occurrencesByFamily.values()) {
-    for (let i = 1; i < occurrences.length; i++) {
-      gaps.push(occurrences[i] - occurrences[i - 1]);
+    // Spacing: distance (in word positions) between consecutive occurrences of
+    // the same family — how tightly rhymes cluster within the text.
+    const gaps = [];
+    for (const occurrences of occurrencesByFamily.values()) {
+      for (let i = 1; i < occurrences.length; i++) {
+        gaps.push(occurrences[i] - occurrences[i - 1]);
+      }
+    }
+
+    const count = to - from;
+    return {
+      wordCount: count,
+      familyCount: occurrencesByFamily.size,
+      rhymeDensity: count > 0 ? familyTokenCount / count : 0,
+      internalRhymeCount,
+      lineEndRhymeCount,
+      avgRhymeSpacing: gaps.length > 0 ? gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length : null,
+      recurringFamilyShare:
+        occurrencesByFamily.size > 0
+          ? [...linesByFamily.values()].filter((lines) => lines.size >= 2).length / occurrencesByFamily.size
+          : null,
+    };
+  };
+
+  // Token range per stanza (stanzas are non-overlapping and ordered, so a
+  // single forward pass maps each to [firstTokenIndex, lastTokenIndex]).
+  const sections = [];
+  if (wordCount > 0) {
+    let tokenCursor = 0;
+    for (const [rangeStart, rangeEnd] of stanzaRanges(text)) {
+      while (tokenCursor < wordCount && tokens[tokenCursor].start < rangeStart) {
+        tokenCursor++;
+      }
+      const firstTokenIndex = tokenCursor;
+      while (tokenCursor < wordCount && tokens[tokenCursor].start < rangeEnd) {
+        tokenCursor++;
+      }
+      const lastTokenIndex = tokenCursor - 1;
+      if (lastTokenIndex < firstTokenIndex) {
+        continue; // Stanza with no words (punctuation/decoration only).
+      }
+      sections.push({
+        index: sections.length,
+        firstTokenIndex,
+        lastTokenIndex,
+        lineStart: tokenLines[firstTokenIndex] + 1,
+        lineEnd: tokenLines[lastTokenIndex] + 1,
+        metrics: measure(firstTokenIndex, lastTokenIndex + 1),
+      });
     }
   }
 
@@ -639,16 +797,8 @@ function computeMetrics(text, tokens) {
     uniqueWordCount,
     // Repeated words measured separately so choruses don't inflate rhyme stats.
     repetitionRate: wordCount > 0 ? 1 - uniqueWordCount / wordCount : 0,
-    familyCount: occurrencesByFamily.size,
-    // Share of word occurrences in a family that contains a different word.
-    rhymeDensity: wordCount > 0 ? familyTokenCount / wordCount : 0,
-    internalRhymeCount,
-    lineEndRhymeCount,
-    avgRhymeSpacing: gaps.length > 0 ? gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length : null,
-    recurringFamilyShare:
-      occurrencesByFamily.size > 0
-        ? [...linesByFamily.values()].filter((lines) => lines.size >= 2).length / occurrencesByFamily.size
-        : null,
+    ...measure(0, wordCount),
+    sections,
   };
 }
 
@@ -692,7 +842,15 @@ async function analyseText(text) {
     }
   });
 
-  const families = buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord);
+  // Clipped spellings ("hustlin", "ridin") are matched through their +g forms.
+  const aliasOwners = new Map();
+  for (const word of uniqueWords) {
+    if (CLIPPED_IN_RE.test(word) && word.length >= 5) {
+      aliasOwners.set(`${word}g`, word);
+    }
+  }
+
+  const families = buildWordFamilies(uniqueWords, rhymeSets, firstIndexOfWord, aliasOwners);
   const familyIdByWord = new Map(
     families.flatMap((family) => family.words.map((word) => [word, family.id]))
   );

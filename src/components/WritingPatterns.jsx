@@ -1,48 +1,6 @@
 import { useMemo, useState } from "react";
 import { songsSharingRhymeWords } from "../util/analysisIndex";
-
-const formatPercent = (value) => (value == null ? "—" : `${Math.round(value * 100)}%`);
-const formatCount = (value) => (value == null ? "—" : String(value));
-const formatSpacing = (value) => (value == null ? "—" : `${value.toFixed(1)} words`);
-
-const METRICS = [
-  {
-    key: "rhymeDensity",
-    label: "Rhyme density",
-    format: formatPercent,
-    description: "Share of word occurrences belonging to a rhyme family",
-  },
-  {
-    key: "internalRhymeCount",
-    label: "Internal rhymes",
-    format: formatCount,
-    description: "Rhyming words inside lines",
-  },
-  {
-    key: "lineEndRhymeCount",
-    label: "Line-end rhymes",
-    format: formatCount,
-    description: "Rhyming words at line ends",
-  },
-  {
-    key: "avgRhymeSpacing",
-    label: "Avg. rhyme spacing",
-    format: formatSpacing,
-    description: "Mean distance between consecutive occurrences of the same family",
-  },
-  {
-    key: "recurringFamilyShare",
-    label: "Recurring families",
-    format: formatPercent,
-    description: "Families that appear on two or more lines",
-  },
-  {
-    key: "repetitionRate",
-    label: "Repeated words",
-    format: formatPercent,
-    description: "Occurrences that repeat an earlier word (choruses, hooks)",
-  },
-];
+import { METRICS } from "../util/metricsDisplay";
 
 // Writing-pattern measurements for the open text, with song-to-song comparison
 // against the analysed-songs index. Every number is inspectable: open either

@@ -152,6 +152,18 @@
   font-size: 1.6rem;
 }
 
+.artist__patterns {
+  margin-top: 1.75rem;
+}
+
+.artist__patterns-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
 .artist__similar {
   margin-top: 1.75rem;
 }
@@ -515,6 +527,61 @@
   margin-top: 1.5rem;
   border-top: 1px dashed #e5e7eb;
   padding-top: 0.9rem;
+}
+
+.lyrics__raw--muted {
+  opacity: 0.3;
+}
+
+/* Section navigator (verse-level inspection) */
+
+.sections {
+  margin: 0 0 0.75rem;
+}
+
+.sections summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.sections__list {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sections__item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.45rem 0.7rem;
+}
+
+.sections__item:hover {
+  border-color: #9ca3af;
+}
+
+.sections__item--selected {
+  border-color: #111827;
+  box-shadow: 0 0 0 1px #111827;
+}
+
+.sections__name {
+  font-weight: 700;
+}
+
+.sections__meta {
+  color: #6b7280;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Writing patterns (metrics, comparison, shared rhyme sounds) */

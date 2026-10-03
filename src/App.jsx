@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ArtistContext from "./components/ArtistContext";
 import ArtistPage from "./components/ArtistPage";
 import LyricsReader from "./components/LyricsReader";
@@ -490,6 +490,18 @@ function App() {
   const sessionRecord = session?.kind === "song" ? songs[session.songId] : null;
   const artistRecord = session?.artistId ? artists[session.artistId] : null;
 
+  // Artist-level pattern summary from the analysed-songs index (sample = the
+  // analysed songs only, and the UI says exactly how many that is).
+  const artistPatterns = useMemo(() => {
+    if (session?.kind !== "artist") {
+      return null;
+    }
+    const songsForArtist = analysisIndex.filter(
+      (entry) => String(entry.artistId) === session.artistId
+    );
+    return { count: songsForArtist.length, songs: songsForArtist };
+  }, [analysisIndex, session]);
+
   const songResults = (
     <SongResults
       status={search.status}
@@ -588,6 +600,7 @@ function App() {
             {session.kind === "artist" && (
               <ArtistPage
                 record={artistRecord ?? {}}
+                patterns={artistPatterns}
                 onOpenSong={(song) => openSong(song.id, session.artistId)}
                 onOpenSimilarArtist={openArtistByName}
                 onLoadMoreSongs={(page) => loadMoreArtistSongs(session.artistId, page)}

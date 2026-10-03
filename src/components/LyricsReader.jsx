@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import PasteLyricsBox from "./PasteLyricsBox";
 import RhymeLegend from "./RhymeLegend";
 import RhymesOutput from "./RhymesOutput";
+import SectionNavigator from "./SectionNavigator";
 import WritingPatterns from "./WritingPatterns";
 import { assignFamilyColors } from "../util/familyColors";
 
@@ -22,6 +23,7 @@ const LyricsReader = ({
   const [viewMode, setViewMode] = useState("all"); // "all" | "family" | "plain"
   const [selectedFamilyId, setSelectedFamilyId] = useState(null);
   const [occurrenceIndex, setOccurrenceIndex] = useState(0);
+  const [selectedSectionIndex, setSelectedSectionIndex] = useState(null);
   const [showPasteOverride, setShowPasteOverride] = useState(false);
 
   const families = useMemo(() => analysis?.families ?? [], [analysis]);
@@ -49,6 +51,19 @@ const LyricsReader = ({
     () => (selectedFamilyId ? occurrencesByFamily.get(selectedFamilyId) ?? [] : []),
     [selectedFamilyId, occurrencesByFamily]
   );
+
+  const sections = useMemo(() => analysis?.metrics?.sections ?? null, [analysis]);
+  const selectedSection =
+    selectedSectionIndex != null ? sections?.find((section) => section.index === selectedSectionIndex) ?? null : null;
+
+  useEffect(() => {
+    if (!selectedSection) {
+      return;
+    }
+    document
+      .getElementById(`token-${selectedSection.firstTokenIndex}`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [selectedSection]);
 
   useEffect(() => {
     setOccurrenceIndex(0);
@@ -297,6 +312,14 @@ const LyricsReader = ({
           />
         )}
 
+        {viewMode !== "plain" && (
+          <SectionNavigator
+            sections={sections ?? []}
+            selectedIndex={selectedSectionIndex}
+            onSelect={setSelectedSectionIndex}
+          />
+        )}
+
         {viewMode === "plain" ? (
           <div className="lyrics lyrics--plain">{lyrics.text}</div>
         ) : (
@@ -306,6 +329,7 @@ const LyricsReader = ({
             colors={colors}
             selectedFamilyId={viewMode === "family" ? selectedFamilyId : null}
             dimUnselected={viewMode === "family"}
+            activeSection={selectedSection}
             onSelectFamily={selectFamily}
           />
         )}

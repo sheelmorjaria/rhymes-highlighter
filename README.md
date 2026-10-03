@@ -42,21 +42,27 @@ meaningful HTTP status.
 
 ## How highlighting works
 
-The backend tokenises the text, looks up rhymes for each unique word at
-Datamuse (cached, bounded concurrency), and groups words into **families** as
-connected rhyme components — in effect rime classes ("light / night / write").
-Every occurrence of a family's words is coloured, repeats included; a word
-that only repeats itself doesn't form a family. The frontend renders the
-original text verbatim (spacing, punctuation, casing, line breaks) and paints
-only the word spans, assigning each family a deterministic colour from a fixed
-palette.
+The backend tokenises the text, then groups words into **families** using
+three rhyme sources, loose the way lyric writing is: Datamuse perfect and near
+rhymes (with clipped spellings like *hustlin* looked up as *hustling*), and
+CMUdict final-syllable sound matching (stress-insensitive) — which is what
+catches rap-style slants like *metropolis / this* and *darkened / hardened /
+sharpened*. Every occurrence of a family's words is coloured, repeats
+included; a word that only repeats itself doesn't form a family. The frontend
+renders the original text verbatim (spacing, punctuation, casing, line
+breaks) and paints only the word spans, assigning each family a deterministic
+colour from a fixed palette.
 
 Each analysis also produces **writing-pattern metrics** (rhyme density,
 internal vs line-end rhymes, average rhyme spacing, recurring families,
 repeated-word share) shown in the reader's "Writing patterns" panel, with
 side-by-side comparison against other songs you've analysed and a
 "rhyme sounds shared with other analysed songs" search — every claim is a
-click away from the highlighted lyrics it came from.
+click away from the highlighted lyrics it came from. Lyrics are split into
+**sections** (blank-line-separated stanzas) with their own measurements, so
+you can inspect one verse's patterns in isolation, and artist pages show a
+**writing-pattern summary** aggregated across the songs of that artist you've
+analysed — with the sample size stated.
 
 ## Deployment
 

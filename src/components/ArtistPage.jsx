@@ -1,9 +1,60 @@
 import SongCard from "./SongCard";
+import { METRICS, formatPercent } from "../util/metricsDisplay";
 
 // An artist page answers three questions: who is this artist, which songs can
 // I explore, and where can I go next (similar artists, when the discovery
 // provider is configured — the page still works without it).
-const ArtistPage = ({ record, onOpenSong, onOpenSimilarArtist, onLoadMoreSongs, onRetry }) => {
+// Artist-level writing-pattern summary, aggregated from the analysed-songs
+// index. The sample is always visible: the count of analysed songs and links
+// to inspect each one — an average of two songs is exactly that.
+const ArtistPatterns = ({ patterns, onOpenSong }) => {
+  if (!patterns || patterns.count === 0) {
+    return null;
+  }
+  const average = (key) => {
+    const values = patterns.songs
+      .map((entry) => entry.metrics?.[key])
+      .filter((value) => typeof value === "number");
+    return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  };
+
+  return (
+    <section className="artist__patterns" aria-label="Writing patterns summary">
+      <h3 className="results__heading">Writing patterns</h3>
+      <p className="results__hint">
+        Averages across {patterns.count} analysed {patterns.count === 1 ? "song" : "songs"} by this
+        artist — not their whole catalogue.
+        {patterns.count < 3 && " Small sample: analyse more songs for a steadier picture."}
+      </p>
+      <dl className="patterns__grid">
+        {METRICS.map((metric) => (
+          <div key={metric.key} className="patterns__cell">
+            <dt title={metric.description}>{metric.label}</dt>
+            <dd>{metric.format(average(metric.key))}</dd>
+          </div>
+        ))}
+      </dl>
+      <ul className="artist__patterns-list">
+        {patterns.songs.map((entry) => (
+          <li key={entry.id}>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => onOpenSong({ id: entry.id })}
+            >
+              {entry.title}
+            </button>{" "}
+            <span className="results__hint">
+              {formatPercent(entry.metrics?.rhymeDensity)} rhyme density
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};
+
+const ArtistPage = ({ record, patterns, onOpenSong, onOpenSimilarArtist, onLoadMoreSongs, onRetry }) => {
   const meta = record?.meta ?? { status: "loading" };
   const songs = record?.songs ?? { status: "idle", list: [], nextPage: null };
   const similar = record?.similar ?? { status: "idle", list: [] };
@@ -99,6 +150,8 @@ const ArtistPage = ({ record, onOpenSong, onOpenSimilarArtist, onLoadMoreSongs, 
           </button>
         )}
       </section>
+
+      <ArtistPatterns patterns={patterns} onOpenSong={onOpenSong} />
 
       <section className="artist__similar" aria-label="Similar artists">
         <h3 className="results__heading">Similar artists</h3>
